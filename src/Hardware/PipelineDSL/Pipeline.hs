@@ -1,16 +1,23 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
-module Hardware.Pipeline (
+module Hardware.PipelineDSL.Pipeline (
     sig,
     stage,
-    printRegs,
     HW (..),
-    Signal (..)
+    rHW,
+    Signal (..),
+    PStage (..),
+    SigMap (..),
+    MOps (..),
+    BOps (..),
+    UOps (..),
+    Reg (..),
+    simplify,
+    getSignalWidth
 ) where
 
 import Control.Monad
 import Control.Applicative
-import Data.List (intercalate) -- nub function removes duplicates
 import Data.Monoid ( (<>) )
 import Control.Monad.Fix
 import Data.Ix (range)
@@ -129,36 +136,6 @@ class ToSignal a where
     toSignal :: a -> Signal
     fromSignal :: Signal -> a
 
--- reg definition 
--- [Int, (Signal, Signal)]
-
-instance Show Signal where 
-    show = vcode
-
--- print verilog expression
-mOpsSign Or = " | "
-mOpsSign And = " & "
-mOpsSign Sum = " + "
-mOpsSign Mul = " * "
-
-bOpsSign Sub = " - "
-bOpsSign Equal = " == "
-bOpsSign NotEqual = "!="
-
-uOpsSign Not = "~"
-uOpsSign Neg = "-"
-
-vcode = vcode' . simplify . simplify . simplify . simplify  where
-    vcode' (SigRef n _) = "sig_" ++ (show n)
-    vcode' (MultyOp o ops) = "(" ++ intercalate (mOpsSign o) (map vcode' ops) ++ ")"
-    vcode' (BinaryOp o op1 op2) = "(" ++ (vcode' op1) ++ (bOpsSign o) ++ (vcode' op2) ++ ")"
-    vcode' (UnaryOp o op) = (uOpsSign o) ++ "(" ++ (vcode' op) ++ ")"
-    vcode' (Lit val width) = (show width) ++ "'d" ++ (show val)
-    vcode' (Alias n _) = n
-    vcode' Undef = "'x"
-    vcode' (RegRef n _) = "reg_" ++ (show n)
-    vcode' (PipelineStage p) = vcode' $ pipeStageReg p
-
 instance Num Signal where
     abs = UnaryOp Abs
     negate = UnaryOp Neg
@@ -169,10 +146,6 @@ instance Num Signal where
     fromInteger x = Lit (fromInteger x) 32
 
 data Reg = Reg [(Signal, Signal)]
-instance Show Reg where
-    show (Reg s) = intercalate "\n" v where
-        v = map pr s
-        pr (en, r) = (vcode en) ++ " : " ++ (vcode r)
 
 data SigMap = SigMap { smSignals :: [(Int, Signal)]
                      , smStages :: [(Int, PStage)]
@@ -341,7 +314,6 @@ stage inputSignal' = HW l where
         clearsignal = pslClr $ (pipeCtrlStageCtrl pipectrl) stageid
         reg = Reg [(enablesignal, delayedInputsSignal), (clearsignal, Undef)]
 
-        -- delayedInput = 
 
         me = mempty { smStages = [(nsig, stg)]
                     , smRegs = [(nsig + 1, reg)] }
@@ -375,43 +347,3 @@ stage inputSignal' = HW l where
 
         -- enable signal stageid
         rdySignal = Lit 1 1
-
-printPipeStages m = unlines (map printStg stgs) where
-    printStg (i, x) = intercalate "\n" [decl] where
-        s = "stage  : id "  ++ (pipeStageName x) ++ " * " ++ show (i) 
-        name = (pipeStageName x)
-        decl = s ++ "\nlogic [31:0] " ++ name ++ ";"
-
-    stgs = smStages $ rHW m
-
-
-print_width 1 = ""
-print_width n = "[" ++ (show $ n - 1) ++ ":0] "
-
-printSigs m = unlines (map printStg stgs) where
-    printStg (i, x) = intercalate "\n" [decl] where
-        width = getSignalWidth x
-        sig = "sig_" ++ (show i)
-        decl' = "\n\nlogic " ++ (print_width width) ++ sig ++ ";\n" 
-        assign = "assign " ++ sig ++ " = " ++ vcode x ++ ";"
-        decl = decl' ++ assign
-    stgs = smSignals $ rHW m
-
-printRegs m = unlines (map printStg stgs) where
-    printStg (i, x@(Reg c)) = intercalate "\n" [decl] where
-        width = maximum $ map (getSignalWidth . snd) c
-
-        reg = "reg_" ++ (show i)
-        cond (e, v) =
-            "if (" ++ (vcode e) ++ ")\n" ++
-            "            " ++ reg ++ " <= " ++ (vcode v) ++ ";"
-        condassigns = intercalate "\n        else " $ map cond c
-
-        decl = "\n\nlogic " ++ (print_width width) ++ reg ++ ";\n" ++
-            "always @(posedge clk or negedge rst_n) begin\n" ++
-            "    if (rst_n == 0) begin\n" ++
-            "        " ++ reg ++ " <= '0;\n" ++
-            "    end else begin\n        " ++ condassigns ++
-            "\n    end" ++  "\nend"
-    stgs = smRegs $ rHW m
-

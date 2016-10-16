@@ -5,7 +5,7 @@ import Data.Monoid ( (<>) )
 import Control.Monad.Fix
 import Data.Ix (range)
 
-import Hardware.Pipeline
+import Hardware.PipelineDSL
 
 t2 :: HW a ()
 t2 = do
@@ -20,16 +20,6 @@ t2 = do
 
 -- how to run icarus verilog
 -- iverilog x.v -g2005-sv -o x && vvp x
-
-t1 r r2 = do
-    a <- sig $ Alias "data1" 11
-    b <- sig $ a + a + a + 43
-    t <- sig $ r + 17 + r2
-    d <- forM [1, 3, 4] $ \x -> do
-        sig a
-    l <- sig $ foldr (+) (head d) (tail d)
-    c <- sig $ a + b
-    return (a, t)
 
 main = do
     putStrLn $ "module test;\n" ++
