@@ -55,7 +55,6 @@ data Signal = Alias String Int -- name, width
             | PipelineStage PStage
             | RegRef Int Reg -- register, inserts 1 clock delay
 
-
 -- list all pipeline stages that are inputs for a given signal
 queryUpstreamStages :: Signal -> [PStage]
 queryUpstreamStages (PipelineStage x) = [x]
@@ -304,7 +303,8 @@ stage inputSignal' = HW l where
                         , pipeStageDelaysNum = ndelays
                         , pipeStageDelayRegs = delayedRegs
                         , pipeStageReg = (RegRef (nsig + 1) reg) }
-        
+
+        -- take care of conditional signal
         (vld, inputSignal) = case inputSignal' of
             (Cond v s) -> ((mapSignal mapR v), s)
             _ -> (Lit 1 1, inputSignal')
@@ -329,10 +329,9 @@ stage inputSignal' = HW l where
         hasMeUpstream s = elem nsig $ map pipeStageId $ pipeStageUpstreamStages s
         downstreamStages = filter hasMeUpstream allStagesInPipeline
 
-        ndelays' = case (map pipeStageStageNum downstreamStages) of
+        ndelays = case (map pipeStageStageNum downstreamStages) of
             [] -> 0
             x -> (maximum x) - stageid - 1
-        ndelays = trace ("// " ++  show [nsig, stageid, ndelays']) ndelays' 
 
         -- for a given stage, return ready and data signals
         delayedRegs 0 = PDelayReg rdySignal self

@@ -22,20 +22,4 @@ t2 = do
 -- iverilog x.v -g2005-sv -o x && vvp x
 
 main = do
-    putStrLn $ "module test;\n" ++
-        "logic rst_n;\n" ++
-        "logic clk = 0;\n" ++
-
-        "always #10 clk =~ clk;\n" ++
-        "initial #14 rst_n = 1;\n" ++
-
-        "initial\n" ++
-        "begin\n" ++
-        "    rst_n <= 0;\n" ++
-        "    $dumpfile(\"test.vcd\");\n" ++
-        "    $dumpvars(0,test);\n" ++
-        "end\n" ++
-        "`include \"tb.sv\" \n"
-
-    putStr $ printRegs t2
-    putStrLn "endmodule"
+    putStr $ toSMT_LIBv2 t2
