@@ -29,11 +29,11 @@ code = code' . simplify . simplify . simplify . simplify  where
 
     code' (BinaryOp o op1 op2) = "(" ++ (bOpsSign o) ++ (code' op1) ++ " " ++ (code' op2) ++ ")"
     code' (UnaryOp o op) = "( " ++ (uOpsSign o) ++ (code' op) ++ ")"
-    code' (Lit val width) = printf "#x%08x" val
+    code' (Lit val width) = printf "(_ bv%d %d)" val width 
     code' (Alias n _) = n
     code' Undef = "'x"
     code' (RegRef n _) = "reg_" ++ (show n)
-    code' (PipelineStage p) = code' $ pipeStageReg p
+    code' (PipelineStage p) = "ps_" ++ (show $ pipeStageId p)
 
 toSMT_LIBv2 m = signals ++ stages where
     signals = unlines (map printSig $ smSignals $ rHW m)
@@ -46,6 +46,6 @@ toSMT_LIBv2 m = signals ++ stages where
     printStg (i, pstg) = assert where
         s = pipeStageSignal pstg
         width = getSignalWidth  s
-        reg = "reg_" ++ (show i)
+        reg = "ps_" ++ (show i)
         decl = "(declare-const " ++ reg ++ " (_ BitVec " ++ (show width) ++ "))\n"
         assert = decl ++ "(assert (= " ++ reg ++ " " ++ (code s) ++ "))"
