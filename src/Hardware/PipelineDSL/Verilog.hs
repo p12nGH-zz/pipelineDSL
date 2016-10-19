@@ -1,6 +1,6 @@
 -- | Verilog code generation
 module Hardware.PipelineDSL.Verilog (
-    printRegs
+    toVerilog
 ) where
 
 import Data.List (intercalate)
@@ -24,7 +24,12 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (SigRef n _) = "sig_" ++ (show n)
     vcode' (MultyOp o ops) = "(" ++ intercalate (mOpsSign o) (map vcode' ops) ++ ")"
     vcode' (BinaryOp o op1 op2) = "(" ++ (vcode' op1) ++ (bOpsSign o) ++ (vcode' op2) ++ ")"
+
+    vcode' (UnaryOp o op@(Alias _ _)) = (uOpsSign o)  ++ (vcode' op)
+    vcode' (UnaryOp o op@(SigRef _ _)) = (uOpsSign o)  ++ (vcode' op)
+    vcode' (UnaryOp o op@(RegRef _ _)) = (uOpsSign o)  ++ (vcode' op)
     vcode' (UnaryOp o op) = (uOpsSign o) ++ "(" ++ (vcode' op) ++ ")"
+
     vcode' (Lit val width) = (show width) ++ "'d" ++ (show val)
     vcode' (Alias n _) = n
     vcode' Undef = "'x"
@@ -44,7 +49,7 @@ printSigs m = unlines (map printStg stgs) where
         decl = decl' ++ assign
     stgs = smSignals $ rHW m
 
-printRegs m = unlines (map printStg stgs) where
+toVerilog m = (printSigs m) ++ (unlines $ map printStg stgs)  where
     printStg (i, x@(Reg c)) = intercalate "\n" [decl] where
         width = maximum $ map (getSignalWidth . snd) c
 
@@ -54,7 +59,7 @@ printRegs m = unlines (map printStg stgs) where
             "            " ++ reg ++ " <= " ++ (vcode v) ++ ";"
         condassigns = intercalate "\n        else " $ map cond c
 
-        decl = "\n\nlogic " ++ (print_width width) ++ reg ++ ";\n" ++
+        decl = "\nlogic " ++ (print_width width) ++ reg ++ ";\n" ++
             "always @(posedge clk or negedge rst_n) begin\n" ++
             "    if (rst_n == 0) begin\n" ++
             "        " ++ reg ++ " <= '0;\n" ++

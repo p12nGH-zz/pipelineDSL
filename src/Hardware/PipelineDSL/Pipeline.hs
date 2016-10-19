@@ -21,6 +21,7 @@ import Control.Applicative
 import Data.Monoid ( (<>) )
 import Control.Monad.Fix
 import Data.Ix (range)
+import Data.Bits (finiteBitSize, countLeadingZeros)
 
 import Debug.Trace
 
@@ -34,7 +35,8 @@ data PStage = PStage { pipeStageId :: Int
                      , pipeStageName :: String
                      , pipeStageDelaysNum :: Int
                      , pipeStageDelayRegs :: Int -> PDelayReg
-                     , pipeStageReg :: Signal }
+                     , pipeStageReg :: Signal
+                     , pipeStageBufferDepth :: Int }
 
 data PDelayReg = PDelayReg { delayRegEn :: Signal
                            , delayRegData :: Signal }
@@ -185,6 +187,7 @@ rHW am@(HW m) = sm' where
         (,) <$> genPipeCtrl <*> genDelays
     
     stagesWithId i = map snd $ filter (\s -> i == pipeStageStageNum (snd s)) stgs
+    bufferdepth i = max $ map pipeStageBufferDepth $ stagesWithId i
 
     genPipeCtrl = mfix $ \pl -> do
         let rdyn = (map pslRdy $ tail pl) ++ [Lit 1 1]
@@ -289,7 +292,9 @@ mkReg reginput = HW f where
         s = RegRef nsig r
 
 stage :: Signal -> HW a Signal
-stage inputSignal' = HW l where
+stage = stage' 1
+
+stage' depth inputSignal' = HW l where
     l nsig pipectrl = (nsig + 2, me, self) where
         self = PipelineStage stg
         stg = PStage    { pipeStageId = nsig
@@ -302,7 +307,8 @@ stage inputSignal' = HW l where
                         , pipeStageName = name
                         , pipeStageDelaysNum = ndelays
                         , pipeStageDelayRegs = delayedRegs
-                        , pipeStageReg = (RegRef (nsig + 1) reg) }
+                        , pipeStageReg = (RegRef (nsig + 1) reg)
+                        , pipeStageBufferDepth = depth }
 
         -- take care of conditional signal
         (vld, inputSignal) = case inputSignal' of
@@ -346,3 +352,6 @@ stage inputSignal' = HW l where
 
         -- enable signal stageid
         rdySignal = Lit 1 1
+
+representationWidth :: Int -> Int
+representationWidth i = (finiteBitSize i) - (countLeadingZeros i)

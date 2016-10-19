@@ -14,7 +14,6 @@ t2 = do
     d <- stage $ m -- 0
     d1 <- stage $ d + 7 + d -- 1
     d2 <- stage $ d1 + 19 -- 2
-
     d3 <- stage $ d - 13 + d2 -- 3
     return ()
 
@@ -22,4 +21,5 @@ t2 = do
 -- iverilog x.v -g2005-sv -o x && vvp x
 
 main = do
-    putStr $ toSMT_LIBv2 t2
+    -- putStr $ toSMT_LIBv2 t2
+    putStr $ toVerilog t2
