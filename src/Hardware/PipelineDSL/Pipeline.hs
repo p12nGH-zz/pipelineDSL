@@ -36,7 +36,8 @@ data PStage = PStage { pipeStageId :: Int
                      , pipeStageDelaysNum :: Int
                      , pipeStageDelayRegs :: Int -> PDelayReg
                      , pipeStageReg :: Signal
-                     , pipeStageBufferDepth :: Int }
+                     , pipeStageBufferDepth :: Int
+                     , pipeStageCtrl :: PipeStageLogic }
 
 data PDelayReg = PDelayReg { delayRegEn :: Signal
                            , delayRegData :: Signal }
@@ -292,9 +293,9 @@ mkReg reginput = HW f where
         s = RegRef nsig r
 
 stage :: Signal -> HW a Signal
-stage = stage' 1
+stage = stage' 0
 
-stage' depth inputSignal' = HW l where
+stage' bufferdepth inputSignal' = HW l where
     l nsig pipectrl = (nsig + 2, me, self) where
         self = PipelineStage stg
         stg = PStage    { pipeStageId = nsig
@@ -308,7 +309,8 @@ stage' depth inputSignal' = HW l where
                         , pipeStageDelaysNum = ndelays
                         , pipeStageDelayRegs = delayedRegs
                         , pipeStageReg = (RegRef (nsig + 1) reg)
-                        , pipeStageBufferDepth = depth }
+                        , pipeStageBufferDepth = bufferdepth
+                        , pipeStageCtrl = ctrl }
 
         -- take care of conditional signal
         (vld, inputSignal) = case inputSignal' of
@@ -316,13 +318,13 @@ stage' depth inputSignal' = HW l where
             _ -> (Lit 1 1, inputSignal')
     
         stgs = pipeCtrlStages pipectrl
-        enablesignal = pslTake $ (pipeCtrlStageCtrl pipectrl) stageid
-        clearsignal = pslClr $ (pipeCtrlStageCtrl pipectrl) stageid
+        enablesignal = pslTake ctrl
+        clearsignal = pslClr ctrl
         reg = Reg [(enablesignal, delayedInputsSignal), (clearsignal, Undef)]
 
 
         me = mempty { smStages = [(nsig, stg)]
-                    , smRegs = [(nsig + 1, reg)] }
+                    , smRegs = [(nsig + 1, reg), (nsig + 2, dereg)] }
  
         upstreamStages = queryUpstreamStages inputSignal
 
@@ -352,6 +354,34 @@ stage' depth inputSignal' = HW l where
 
         -- enable signal stageid
         rdySignal = Lit 1 1
+
+        -- pipeline control logic
+        or' = MultyOp Or
+        and' = MultyOp And
+        not' = UnaryOp Not
+
+        dereg = Reg [(take', Lit 1 1), (declr, Lit 0 1)]
+        deregref = RegRef (nsig + 2) dereg
+
+        rdy = or' $ map pipeStageRdy $ upstreamStages
+        dep' = and' $ map (pslDe . pipeStageCtrl) $ upstreamStages
+        drp = not' vld
+        take' = and' [rdy, dep', not' drp]
+        takenext' = and' $ map (pslTake . pipeStageCtrl) $ downstreamStages
+        dropnext' = and' $ map (pslDrop . pipeStageCtrl) $ downstreamStages
+        declr = and' [not' take', (or' [takenext', dropnext'])]
+
+        ctrl = PipeStageLogic
+            { pslRdy = rdy
+            , pslDep = dep'
+            , pslDe  = deregref
+            , pslRdyn = and' $ map (pslRdy . pipeStageCtrl) $ downstreamStages
+            , pslTake = take'
+            , pslTakeNext = takenext'
+            , pslDrop = drp
+            , pslDropNext = dropnext'
+            , pslClr = and' [not' take', (or' [takenext', dropnext'])] }
+        
 
 representationWidth :: Int -> Int
 representationWidth i = (finiteBitSize i) - (countLeadingZeros i)
