@@ -147,11 +147,11 @@ instance Num Signal where
     signum = UnaryOp Signum
     fromInteger x = Lit (fromInteger x) 32
 
+type RefSt a = [(Maybe Int, a)]
 data Reg = Reg [(Signal, Signal)]
-
-data SigMap = SigMap { smSignals :: [(Int, Signal)]
-                     , smStages :: [(Int, PStage)]
-                     , smRegs :: [(Int, Reg)] }
+data SigMap = SigMap { smSignals :: RefSt Signal
+                     , smStages :: RefSt PStage
+                     , smRegs ::RefSt Reg }
 
 --generic Monoid?
 instance Monoid SigMap where
@@ -160,7 +160,7 @@ instance Monoid SigMap where
 
 data HW p s = HW { runHW :: Int -> PipeCtrl -> (Int, SigMap, s) } | HWEmpty
 
-data PipeCtrl = PipeCtrl { pipeCtrlStages :: [(Int, PStage)]
+data PipeCtrl = PipeCtrl { pipeCtrlStages :: [(Maybe Int, PStage)]
                          , pipeCtrlLength :: Int
                          , pipeCtrlStageCtrl :: (Int -> PipeStageLogic)
                          -- source stage id -> dst stage id -> delayed value   
@@ -225,23 +225,25 @@ rHW am@(HW m) = sm' where
         ((:) t) <$> foldMapM f xn t
 
     -- generate delay regs for each pipeline stage
-    genDelayRegs 0 stg = return [(pipeStageStageNum stg + 1, pipeStageReg stg)]
+    genDelayRegs 0 stg = return [(Just $ pipeStageStageNum stg + 1, pipeStageReg stg)]
     genDelayRegs 1 stg = do
         t <- fstDelayReg stg
-        return [((pipeStageStageNum stg) + 1, pipeStageReg stg), ((pipeStageStageNum stg) + 2, t)]
+        return [(Just $ (pipeStageStageNum stg) + 1, pipeStageReg stg), (Just $ (pipeStageStageNum stg) + 2, t)]
     genDelayRegs n stg = do
         let stgids = map ((+) (pipeStageStageNum stg)) [2 .. n]
         let ensigs = map (pslTake . queryPipeCtrl) stgids
         let mkReg1 en v = mkReg [(en, v)]
         [d0, d1] <- genDelayRegs 1 stg
-        tailD <- (zip (map ((+) 1) stgids)) <$> foldMapM mkReg1 ensigs (snd d1)
+        tailD <- (zip (map (fmap ((+) 1)) (map Just stgids))) <$> foldMapM mkReg1 ensigs (snd d1)
         return $ [d0, d1] ++ tailD
 
     fstDelayReg stg = mkReg [(
         pslTake $ queryPipeCtrl $ pipeStageStageNum stg + 1,
             pipeStageReg stg)]
     
-    fstIsfilt c l = snd $ head $ filter (\x -> (fst x) == c) l
+    fstIsfilt c l = snd $ head $ filter filt l where
+        filt ((Just x), _) = x == c
+        filt _ = False
     queryDelayRegs srcid mystgid = fstIsfilt mystgid $ fstIsfilt srcid delayRegs
 
     (_, sm', (pipectrlsignals, delayRegs)) = m' 0 pipectrl
@@ -283,12 +285,12 @@ instance MonadFix (HW p) where
 -- creates reference
 sig :: Signal -> HW a Signal
 sig inputSignal = HW l where
-    l nsig _ = (nsig + 1, mempty {smSignals = [(nsig, inputSignal)]}, s) where
+    l nsig _ = (nsig + 1, mempty {smSignals = [(Just nsig, inputSignal)]}, s) where
         s = SigRef nsig inputSignal
 
 mkReg :: [(Signal, Signal)] -> HW a Signal
 mkReg reginput = HW f where
-    f nsig _ = (nsig + 1, mempty {smRegs = [(nsig, r)]}, s) where
+    f nsig _ = (nsig + 1, mempty {smRegs = [(Just nsig, r)]}, s) where
         r = Reg reginput
         s = RegRef nsig r
 
@@ -296,7 +298,7 @@ stage :: Signal -> HW a Signal
 stage = stage' 0
 
 stage' bufferdepth inputSignal' = HW l where
-    l nsig pipectrl = (nsig + 2, me, self) where
+    l nsig pipectrl = (nsig + 3, me, self) where
         self = PipelineStage stg
         stg = PStage    { pipeStageId = nsig
                         , pipeStageSignal = inputSignal
@@ -323,8 +325,8 @@ stage' bufferdepth inputSignal' = HW l where
         reg = Reg [(enablesignal, delayedInputsSignal), (clearsignal, Undef)]
 
 
-        me = mempty { smStages = [(nsig, stg)]
-                    , smRegs = [(nsig + 1, reg), (nsig + 2, dereg)] }
+        me = mempty { smStages = [(Just $ nsig, stg)]
+                    , smRegs = [(Just $ nsig + 1, reg), (Just $ nsig + 2, dereg)] }
  
         upstreamStages = queryUpstreamStages inputSignal
 
