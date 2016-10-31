@@ -7,10 +7,10 @@ import Data.Ix (range)
 
 import Hardware.PipelineDSL
 
-t2 :: HW a ()
+t2 :: PipeM ()
 t2 = do
-    m <- sig $ Alias "data1" 32
-    u <- sig 899
+    m <- sigp $ Alias "data1" 32
+    u <- sigp 899
     d <- stage $ m -- 0
     d1 <- stage $ d + 7 + d -- 1
     d2 <- stage $ d1 + 19 -- 2

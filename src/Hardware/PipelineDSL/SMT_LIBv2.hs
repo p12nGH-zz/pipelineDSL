@@ -36,13 +36,14 @@ code = code' . simplify . simplify . simplify . simplify  where
     code' (PipelineStage p) = "ps_" ++ (show $ pipeStageId p)
 
 toSMT_LIBv2 m = signals ++ stages where
-    signals = unlines (map printSig $ smSignals $ rHW m)
+    (_, h, s) = rPipe m
+    signals = unlines (map printSig $ smSignals h)
     printSig (i, x) = assert where
         width = getSignalWidth x
         sig = "sig_" ++ (show i)
         decl = "(declare-const " ++ sig ++ " (_ BitVec " ++ (show width) ++ "))\n"
         assert = decl ++ "(assert (= " ++ sig ++ " " ++ (code x) ++ "))"
-    stages = unlines (map printStg $ smStages $ rHW m)
+    stages = unlines (map printStg $ smStages s)
     printStg (i, pstg) = assert where
         s = pipeStageSignal pstg
         width = getSignalWidth  s

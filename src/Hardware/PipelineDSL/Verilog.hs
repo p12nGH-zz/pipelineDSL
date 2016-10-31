@@ -34,8 +34,6 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (Alias n _) = n
     vcode' Undef = "'x"
     vcode' (RegRef n _) = "reg_" ++ (show n)
-    vcode' (PipelineStage p) = vcode' $ pipeStageReg p
-
 
 print_width 1 = ""
 print_width n = "[" ++ (show $ n - 1) ++ ":0] "
@@ -47,7 +45,8 @@ printSigs m = unlines (map printStg stgs) where
         decl' = "\n\nlogic " ++ (print_width width) ++ sig ++ ";\n" 
         assign = "assign " ++ sig ++ " = " ++ vcode x ++ ";"
         decl = decl' ++ assign
-    stgs = smSignals $ rHW m
+    (_, s, _) = rPipe m
+    stgs = smSignals s
 
 toVerilog m = (printSigs m) ++ (unlines $ map printStg stgs)  where
     printStg (i, x@(Reg c)) = intercalate "\n" [decl] where
@@ -65,4 +64,5 @@ toVerilog m = (printSigs m) ++ (unlines $ map printStg stgs)  where
             "        " ++ reg ++ " <= '0;\n" ++
             "    end else begin\n        " ++ condassigns ++
             "\n    end" ++  "\nend"
-    stgs = smRegs $ rHW m
+    (_, s, _) = rPipe m
+    stgs = smRegs s

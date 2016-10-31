@@ -2,18 +2,21 @@
 
 module Hardware.PipelineDSL.Pipeline (
     sig,
+    sigp,
     stage,
     HW (..),
-    rHW,
+    PipeM (..),
     Signal (..),
     PStage (..),
     SigMap (..),
+    StgMap (..),
     MOps (..),
     BOps (..),
     UOps (..),
     Reg (..),
     simplify,
-    getSignalWidth
+    getSignalWidth,
+    rPipe
 ) where
 
 import Control.Monad
@@ -22,6 +25,7 @@ import Data.Monoid ( (<>) )
 import Control.Monad.Fix
 import Data.Ix (range)
 import Data.Bits (finiteBitSize, countLeadingZeros)
+import Control.Monad.RWS.Lazy hiding (Sum)
 
 import Debug.Trace
 
@@ -31,16 +35,10 @@ data PStage = PStage { pipeStageId :: Int
                      , pipeStageUpstreamStages :: [PStage]
                      , pipeStageDownstreamStages :: [PStage]
                      , pipeStageRdy :: Signal
-                     , pipeStageVld :: Signal
                      , pipeStageName :: String
                      , pipeStageDelaysNum :: Int
-                     , pipeStageDelayRegs :: Int -> PDelayReg
-                     , pipeStageReg :: Signal
                      , pipeStageBufferDepth :: Int
-                     , pipeStageCtrl :: PipeStageLogic }
-
-data PDelayReg = PDelayReg { delayRegEn :: Signal
-                           , delayRegData :: Signal }
+                     , pipeStageLogicStages :: [Signal] }
 
 data MOps = Or | And | Sum | Mul
 data BOps = Sub | Equal | NotEqual
@@ -54,11 +52,20 @@ data Signal = Alias String Int -- name, width
             | BinaryOp BOps Signal Signal
             | Cond Signal Signal -- conditional signal valid, value
             | Undef
+            | Stage LogicStage
             -- register output. managed separately outside of the HW monad
             | PipelineStage PStage
             | RegRef Int Reg -- register, inserts 1 clock delay
 
 -- list all pipeline stages that are inputs for a given signal
+queryUpstreamLStages :: Signal -> [LogicStage]
+queryUpstreamLStages (Stage x) = [x]
+queryUpstreamLStages (SigRef _ s) = queryUpstreamLStages s
+queryUpstreamLStages (MultyOp _ s) = concat $ map queryUpstreamLStages s
+queryUpstreamLStages (BinaryOp _ s1 s2) = (queryUpstreamLStages s1) ++ (queryUpstreamLStages s2)
+queryUpstreamLStages (UnaryOp _ s) = queryUpstreamLStages s
+queryUpstreamLStages _ = []
+
 queryUpstreamStages :: Signal -> [PStage]
 queryUpstreamStages (PipelineStage x) = [x]
 queryUpstreamStages (SigRef _ s) = queryUpstreamStages s
@@ -82,7 +89,6 @@ downstreamDist stgid sig = r stgidPaths where
     r [] = 0
     r x = maximum $ map fst x
 
-
 getSignalWidth :: Signal -> Int
 getSignalWidth (PipelineStage s) = getSignalWidth $ pipeStageSignal s
 getSignalWidth (SigRef _ s) = getSignalWidth s
@@ -105,7 +111,6 @@ mapSignal f s =  mapSignal' (f s) where
     mapSignal' (SigRef n s) = SigRef n (mapSignal f s)
     mapSignal' (Cond n s) = Cond (mapSignal f n) (mapSignal f s)
     mapSignal' x = x
-
 
 rewrite :: (Signal -> Signal) -> Signal -> Signal
 rewrite f s =  f $ rewrite' (f s) where
@@ -166,18 +171,21 @@ instance Num Signal where
 type RefSt a = [(Int, a)]
 data Reg = Reg [(Signal, Signal)]
 data SigMap = SigMap { smSignals :: RefSt Signal
-                     , smStages :: RefSt PStage
                      , smRegs ::RefSt Reg }
+data StgMap = StgMap {smStages :: RefSt PStage}
 
---generic Monoid?
 instance Monoid SigMap where
-    mempty = SigMap [] [] []
-    mappend (SigMap s1 s2 s3) (SigMap s1' s2' s3') = SigMap (s1 <> s1') (s2 <> s2') (s3 <> s3')
+    mempty = SigMap [] []
+    mappend (SigMap s1 s2) (SigMap s1' s2') = SigMap (s1 <> s1') (s2 <> s2')
 
-data HW p s = HW { runHW :: Int -> PipeCtrl -> (Int, SigMap, s) } | HWEmpty
+instance Monoid StgMap where
+    mempty = StgMap []
+    mappend (StgMap s) (StgMap s') = StgMap (s <> s')
 
-data PipeCtrl = PipeCtrl { pipeCtrlStages :: [(Int, PStage)]
-                         , pipeCtrlDelayReg :: (Int -> Int -> Signal)}
+type HW = RWS () SigMap Int
+type PipeM = RWST PipeCtrl StgMap Int HW
+
+data PipeCtrl = PipeCtrl { pipeCtrlStages :: [(Int, PStage)]}
 
 data PipeStageLogic = PipeStageLogic { pslRdy  :: Signal
                                      , pslDep  :: Signal
@@ -189,134 +197,80 @@ data PipeStageLogic = PipeStageLogic { pslRdy  :: Signal
                                      , pslDropNext :: Signal
                                      , pslClr :: Signal }
 
-rHW am@(HW m) = sm' where
-    (_, sm, _) = m 0 pipectrl
+rPipe f = (a', sigs, sm) where
     stgs = smStages sm
-    pipectrl = PipeCtrl stgs queryDelayRegs
-
-    (HW m') = do
-        am
-        forM stgs f' where -- generate delayed stages
-            f' (sid, stg) = g (pipeStageDelaysNum stg) sid stg
-            g n sid stg = do
-                r <- foldMapM f [1..n] (0, (pipeStageSignal stg))
-                return $ (sid, [(0, pipeStageReg stg)] ++ r)
-            f i s = ((,) i) <$> (stage (snd s))
-
-    fstIsfilt c l = snd $ head $ filter filt l where
-        filt (x, _) = x == c
-
-    queryDelayRegs srcid mystgid = fstIsfilt mystgid $ fstIsfilt srcid delayRegs
-
-    (_, sm', delayRegs) = m' 0 pipectrl
-
-instance Functor (HW p) where
-    fmap func (HW m) = HW t where
-        t i sm = (i', signals, load) where
-            (i', signals, old_load) = m i sm
-            load = func old_load
-
-instance Applicative (HW p) where
-    pure b = HW $ \x -> (\_ -> (x, mempty, b))
-    (<*>) (HW f) (HW o) = HW fr where
-        fr i sm = (xn, cl <> cr, sa p) where
-            (na, cl, sa) = f i sm
-            (xn, cr, p) = o na sm
-
-instance Monad (HW p) where
-    return = pure
-    (>>=) (HW a) b = HW f where
-        f n sm = (ni, ca <> cb, si) where
-            (na, ca, sa) = a n sm
-            (HW bu) = b sa
-            (ni, cb, si) = bu na sm
-
-instance Alternative (HW p) where
-    empty = HWEmpty
-    (<|>) = (>>)
-
-instance MonadPlus (HW p) where
-    mzero = HWEmpty
-    mplus = (>>)
-
-instance MonadFix (HW p) where
-    mfix m = HW f where
-        f i p = (runHW (m a)) i p where
-            (_, _, a) = f i p
+    pipectrl = PipeCtrl stgs
+    m = runRWST f pipectrl 0 -- Pipe
+    r@((a', _, sm), _, sigs) = runRWS m () 0 -- HW
 
 -- creates reference
-sig :: Signal -> HW a Signal
-sig inputSignal = HW l where
-    l nsig _ = (nsig + 1, mempty {smSignals = [(nsig, inputSignal)]}, s) where
-        s = SigRef nsig inputSignal
+sig :: Signal -> HW Signal
+sig inputSignal = do
+    n <- get
+    put $ n + 1
+    tell $ mempty {smSignals = [(n, inputSignal)]}
+    return $ SigRef n inputSignal
+sigp :: Signal -> PipeM Signal
+sigp s = lift $ sig s
 
-mkReg :: [(Signal, Signal)] -> HW a Signal
-mkReg reginput = HW f where
-    f nsig _ = (nsig + 1, mempty {smRegs = [(nsig, r)]}, s) where
-        r = Reg reginput
-        s = RegRef nsig r
+mkReg :: [(Signal, Signal)] -> HW Signal
+mkReg reginput = do
+    n <- get
+    put $ n + 1
+    tell $ mempty {smRegs = [(n, Reg reginput)]}
+    return $ RegRef n $ Reg reginput
 
-stage :: Signal -> HW a Signal
-stage = stage' 0
+data LogicStage = LogicStage { lsCtrl :: PipeStageLogic
+                             , lsSignal :: Signal
+                             , lsReg :: Signal }
 
-stageControl nsig vld upstreamStages downstreamStages = (ctrl, dereg) where
+stageControl input vld downstreamStages = r where
     or' = MultyOp Or
     and' = MultyOp And
     not' = UnaryOp Not
 
-    dereg = Reg [(take', Lit 1 1), (declr, Lit 0 1)]
-    deregref = RegRef (nsig + 2) dereg
-
-    rdy = or' $ map pipeStageRdy $ upstreamStages
-    dep' = and' $ map (pslDe . pipeStageCtrl) $ upstreamStages
+    upstreamStages = queryUpstreamLStages input
+    rdy = or' $ map (pslRdy . lsCtrl) $ upstreamStages
+    dep' = and' $ map (pslDe . lsCtrl) $ upstreamStages
     drp = not' vld
     take' = and' [rdy, dep', not' drp]
-    takenext' = and' $ map (pslTake . pipeStageCtrl) $ downstreamStages
-    dropnext' = and' $ map (pslDrop . pipeStageCtrl) $ downstreamStages
+    takenext' = and' $ map (pslTake . lsCtrl) $ downstreamStages
+    dropnext' = and' $ map (pslDrop . lsCtrl) $ downstreamStages
     declr = and' [not' take', (or' [takenext', dropnext'])]
+    clr = and' [not' take', (or' [takenext', dropnext'])]
 
-    ctrl = PipeStageLogic
+    ctrl deregref = PipeStageLogic
         { pslRdy = rdy
         , pslDep = dep'
         , pslDe  = deregref
-        , pslRdyn = and' $ map (pslRdy . pipeStageCtrl) $ downstreamStages
+        , pslRdyn = and' $ map (pslRdy . lsCtrl) $ downstreamStages
         , pslTake = take'
         , pslTakeNext = takenext'
         , pslDrop = drp
         , pslDropNext = dropnext'
-        , pslClr = and' [not' take', (or' [takenext', dropnext'])] }
+        , pslClr = clr }
 
-stage' bufferdepth inputSignal' = HW l where
-    l nsig pipectrl = (nsig + 3, me, self) where
-        self = PipelineStage stg
-        stg = PStage    { pipeStageId = nsig
-                        , pipeStageSignal = inputSignal
-                        , pipeStageStageNum = stageid
-                        , pipeStageUpstreamStages = upstreamStages
-                        , pipeStageDownstreamStages = downstreamStages
-                        , pipeStageRdy = rdySignal
-                        , pipeStageVld = vld
-                        , pipeStageName = name
-                        , pipeStageDelaysNum = ndelays
-                        , pipeStageDelayRegs = delayedRegs
-                        , pipeStageReg = (RegRef (nsig + 1) reg)
-                        , pipeStageBufferDepth = bufferdepth
-                        , pipeStageCtrl = ctrl }
+    r = do
+        dereg <- mkReg [(take', Lit 1 1), (declr, Lit 0 1)]
+        reg <- mkReg [(take', input), (clr, Undef)]
+        return $ Stage $ LogicStage (ctrl dereg) input reg
 
+stage :: Signal -> PipeM Signal
+stage = stage' 0
+stage' :: Int -> Signal -> PipeM Signal
+stage' bufferdepth inputSignal = do
+    np <- get
+    pipectrl <- ask
+
+    let
         -- take care of conditional signal
-        (vld, inputSignal) = case inputSignal' of
-            (Cond v s) -> ((mapSignal mapR v), s)
-            _ -> (Lit 1 1, inputSignal')
+        (vld, inputSignal) = case inputSignal of
+            (Cond v s) -> (v, s)
+            _ -> (Lit 1 1, inputSignal)
 
         stgs = pipeCtrlStages pipectrl
-        enablesignal = pslTake ctrl
-        clearsignal = pslClr ctrl
-        reg = Reg [(enablesignal, delayedInputsSignal), (clearsignal, Undef)]
 
-        ndelays = maximum $ map (downstreamDist nsig) $ map snd stgs
-
-        me = mempty { smStages = [(nsig, stg)]
-                    , smRegs = [(nsig + 1, reg), (nsig + 2, dereg)] }
+        ndelays = maximum $ map (downstreamDist np) downstreamStages
  
         upstreamStages = queryUpstreamStages inputSignal
 
@@ -326,25 +280,31 @@ stage' bufferdepth inputSignal' = HW l where
 
         allStagesInPipeline = map snd stgs
         
-        hasMeUpstream s = elem nsig $ map pipeStageId $ pipeStageUpstreamStages s
+        hasMeUpstream s = elem np $ map pipeStageId $ pipeStageUpstreamStages s
         downstreamStages = filter hasMeUpstream allStagesInPipeline
-
-        -- for a given stage, return ready and data signals
-        delayedRegs 0 = PDelayReg rdySignal self
-        delayedRegs n = PDelayReg rdySignal self
        
-        name = "stg_" ++ (show nsig)
-
-        -- map only the stages we depend on
-        delayedInputsSignal = mapSignal mapR inputSignal
-        mapR (PipelineStage p) = (pipeCtrlDelayReg pipectrl) (pipeStageId p) stageid
-        mapR x = x
+        name = "stg_" ++ (show np)
 
         -- enable signal stageid
         rdySignal = Lit 1 1
 
-        -- pipeline control logic
-        (ctrl, dereg) = stageControl nsig vld upstreamStages downstreamStages
+    let f _ s = stageControl s rdySignal []
+    ls <- lift $ foldMapM f [0..ndelays] inputSignal
+
+    let
+        self = PipelineStage stg
+        stg = PStage    { pipeStageId = np
+                        , pipeStageSignal = inputSignal
+                        , pipeStageStageNum = stageid
+                        , pipeStageUpstreamStages = upstreamStages
+                        , pipeStageDownstreamStages = downstreamStages
+                        , pipeStageRdy = rdySignal
+                        , pipeStageName = name
+                        , pipeStageDelaysNum = ndelays
+                        , pipeStageBufferDepth = bufferdepth
+                        , pipeStageLogicStages = ls }
+
+    return self
 
 representationWidth :: Int -> Int
 representationWidth i = (finiteBitSize i) - (countLeadingZeros i)
