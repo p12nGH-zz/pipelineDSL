@@ -14,6 +14,7 @@ module Hardware.PipelineDSL.Pipeline (
     BOps (..),
     UOps (..),
     Reg (..),
+    LogicStage (..),
     simplify,
     getSignalWidth,
     rPipe
@@ -92,6 +93,7 @@ downstreamDist stgid sig = r stgidPaths where
 getSignalWidth :: Signal -> Int
 getSignalWidth (PipelineStage s) = getSignalWidth $ pipeStageSignal s
 getSignalWidth (SigRef _ s) = getSignalWidth s
+getSignalWidth (MultyOp _ []) = 0 -- never happens
 getSignalWidth (MultyOp _ s) = maximum $ map getSignalWidth s
 getSignalWidth (BinaryOp Equal _ _) = 1
 getSignalWidth (BinaryOp _ s1 s2) = max (getSignalWidth s1) (getSignalWidth s2)
@@ -101,6 +103,7 @@ getSignalWidth (Lit _ s) = s
 getSignalWidth (Alias _ s) = s
 getSignalWidth (RegRef _ (Reg s)) = maximum $ map (getSignalWidth . snd) s
 getSignalWidth Undef = 0
+getSignalWidth (Stage ls) = getSignalWidth $ lsSignal ls
 
 mapSignal :: (Signal -> Signal) -> Signal -> Signal
 mapSignal f s =  mapSignal' (f s) where
@@ -224,53 +227,56 @@ data LogicStage = LogicStage { lsCtrl :: PipeStageLogic
                              , lsSignal :: Signal
                              , lsReg :: Signal }
 
-stageControl input vld downstreamStages = r where
-    or' = MultyOp Or
-    and' = MultyOp And
-    not' = UnaryOp Not
+stageControl input vld downstreamStages = do
+    let
+        or' = MultyOp Or
+        and' = MultyOp And
+        not' = UnaryOp Not
 
-    upstreamStages = queryUpstreamLStages input
-    rdy = or' $ map (pslRdy . lsCtrl) $ upstreamStages
-    dep' = and' $ map (pslDe . lsCtrl) $ upstreamStages
-    drp = not' vld
-    take' = and' [rdy, dep', not' drp]
-    takenext' = and' $ map (pslTake . lsCtrl) $ downstreamStages
-    dropnext' = and' $ map (pslDrop . lsCtrl) $ downstreamStages
-    declr = and' [not' take', (or' [takenext', dropnext'])]
-    clr = and' [not' take', (or' [takenext', dropnext'])]
+        upstreamStages = queryUpstreamLStages input
+        rdy = or' $ map (pslRdy . lsCtrl) $ upstreamStages
+        dep' = and' $ map (pslDe . lsCtrl) $ upstreamStages
+        drp = not' vld
+        take' = and' [rdy, dep', not' drp]
+        takenext' = and' $ map (pslTake . lsCtrl) $ downstreamStages
+        dropnext' = and' $ map (pslDrop . lsCtrl) $ downstreamStages
+        declr = and' [not' take', (or' [takenext', dropnext'])]
+        clr = and' [not' take', (or' [takenext', dropnext'])]
 
-    ctrl deregref = PipeStageLogic
-        { pslRdy = rdy
-        , pslDep = dep'
-        , pslDe  = deregref
-        , pslRdyn = and' $ map (pslRdy . lsCtrl) $ downstreamStages
-        , pslTake = take'
-        , pslTakeNext = takenext'
-        , pslDrop = drp
-        , pslDropNext = dropnext'
-        , pslClr = clr }
-
-    r = do
-        dereg <- mkReg [(take', Lit 1 1), (declr, Lit 0 1)]
-        reg <- mkReg [(take', input), (clr, Undef)]
-        return $ Stage $ LogicStage (ctrl dereg) input reg
+    dereg <- mkReg [(take', Lit 1 1), (declr, Lit 0 1)]
+    reg <- mkReg [(take', input), (clr, Undef)]
+    
+    let
+        ctrl = PipeStageLogic
+            { pslRdy = rdy
+            , pslDep = dep'
+            , pslDe  = dereg
+            , pslRdyn = and' $ map (pslRdy . lsCtrl) $ downstreamStages
+            , pslTake = take'
+            , pslTakeNext = takenext'
+            , pslDrop = drp
+            , pslDropNext = dropnext'
+            , pslClr = clr }
+    return $ Stage $ LogicStage ctrl input reg
 
 stage :: Signal -> PipeM Signal
 stage = stage' 0
 stage' :: Int -> Signal -> PipeM Signal
-stage' bufferdepth inputSignal = do
+stage' bufferdepth inputSignal' = do
     np <- get
     pipectrl <- ask
 
     let
         -- take care of conditional signal
-        (vld, inputSignal) = case inputSignal of
+        (vld, inputSignal) = case inputSignal' of
             (Cond v s) -> (v, s)
-            _ -> (Lit 1 1, inputSignal)
+            _ -> (Lit 1 1, inputSignal')
 
         stgs = pipeCtrlStages pipectrl
 
-        ndelays = maximum $ map (downstreamDist np) downstreamStages
+        ndelays = case map (downstreamDist np) downstreamStages of
+            [] -> 0
+            s -> maximum s
  
         upstreamStages = queryUpstreamStages inputSignal
 
@@ -289,7 +295,8 @@ stage' bufferdepth inputSignal = do
         rdySignal = Lit 1 1
 
     let f _ s = stageControl s rdySignal []
-    ls <- lift $ foldMapM f [0..ndelays] inputSignal
+    r <- lift $ stageControl inputSignal rdySignal []
+    ls <- lift $ foldMapM f [1..ndelays] r
 
     let
         self = PipelineStage stg
@@ -302,7 +309,7 @@ stage' bufferdepth inputSignal = do
                         , pipeStageName = name
                         , pipeStageDelaysNum = ndelays
                         , pipeStageBufferDepth = bufferdepth
-                        , pipeStageLogicStages = ls }
+                        , pipeStageLogicStages = r:ls }
 
     return self
 

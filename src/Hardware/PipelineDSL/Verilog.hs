@@ -34,6 +34,8 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (Alias n _) = n
     vcode' Undef = "'x"
     vcode' (RegRef n _) = "reg_" ++ (show n)
+    vcode' (Stage (LogicStage _ _ r)) = vcode' r
+    vcode' (PipelineStage p) = vcode' $ head $ pipeStageLogicStages p
 
 print_width 1 = ""
 print_width n = "[" ++ (show $ n - 1) ++ ":0] "
