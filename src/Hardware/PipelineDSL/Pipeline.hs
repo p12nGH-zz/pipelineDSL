@@ -269,6 +269,7 @@ stage' :: Int -> Signal -> PipeM Signal
 stage' bufferdepth inputSignal' = do
     np <- get
     pipectrl <- ask
+    put $ np + 1
 
     let
         -- take care of conditional signal
@@ -320,7 +321,7 @@ stage' bufferdepth inputSignal' = do
                         , pipeStageDelaysNum = ndelays
                         , pipeStageBufferDepth = bufferdepth
                         , pipeStageLogicStages = r:ls }
-
+    tell $ mempty {smStages = [(np, stg)]}
     return self
 
 representationWidth :: Int -> Int
