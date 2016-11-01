@@ -1,5 +1,3 @@
-{-# LANGUAGE ExistentialQuantification #-}
-
 module Hardware.PipelineDSL.Pipeline (
     sig,
     sigp,
@@ -78,7 +76,7 @@ queryUpstreamStages _ = []
 -- longest distance to current stage
 -- shorter paths need to be compensated
 -- returns 0 if there is no paths connecting specifid stage
-downstreamDist :: Int -> PStage -> Int
+downstreamDist :: Int -> Signal -> Int
 downstreamDist stgid sig = r stgidPaths where
     -- get all stages and distances
     -- returns an array of pairs: [(distance, stage)]
@@ -86,7 +84,7 @@ downstreamDist stgid sig = r stgidPaths where
         t = queryUpstreamStages sig
         c = map ((,) 0) t
         n = map (\(x, y) -> (x + 1, y)) $ concat $ map (allStgsDist . pipeStageSignal) t
-    stgidPaths = filter (\(_, s) -> (pipeStageId s) == stgid) $ allStgsDist $ pipeStageSignal sig
+    stgidPaths = filter (\(_, s) -> (pipeStageId s) == stgid) $ allStgsDist sig
     r [] = 0
     r x = maximum $ map fst x
 
@@ -101,7 +99,7 @@ getSignalWidth (UnaryOp _ s) = getSignalWidth s
 getSignalWidth (Cond _ s) = getSignalWidth s
 getSignalWidth (Lit _ s) = s
 getSignalWidth (Alias _ s) = s
-getSignalWidth (RegRef _ (Reg s)) = maximum $ map (getSignalWidth . snd) s
+getSignalWidth (RegRef _ (Reg s _)) = maximum $ map (getSignalWidth . snd) s
 getSignalWidth Undef = 0
 getSignalWidth (Stage ls) = getSignalWidth $ lsSignal ls
 
@@ -172,7 +170,7 @@ instance Num Signal where
     fromInteger x = Lit (fromInteger x) 32
 
 type RefSt a = [(Int, a)]
-data Reg = Reg [(Signal, Signal)]
+data Reg = Reg [(Signal, Signal)] (Maybe String)
 data SigMap = SigMap { smSignals :: RefSt Signal
                      , smRegs ::RefSt Reg }
 data StgMap = StgMap {smStages :: RefSt PStage}
@@ -217,11 +215,17 @@ sigp :: Signal -> PipeM Signal
 sigp s = lift $ sig s
 
 mkReg :: [(Signal, Signal)] -> HW Signal
-mkReg reginput = do
+mkReg = mkReg' Nothing
+mkNReg n = mkReg' (Just n)
+
+mkReg' :: Maybe String -> [(Signal, Signal)] -> HW Signal
+mkReg' name reginput = do
     n <- get
     put $ n + 1
-    tell $ mempty {smRegs = [(n, Reg reginput)]}
-    return $ RegRef n $ Reg reginput
+    tell $ mempty {smRegs = [(n, Reg reginput name)]}
+    return $ RegRef n $ Reg reginput name
+
+ 
 
 data LogicStage = LogicStage { lsCtrl :: PipeStageLogic
                              , lsSignal :: Signal
@@ -243,8 +247,8 @@ stageControl input vld downstreamStages = do
         declr = and' [not' take', (or' [takenext', dropnext'])]
         clr = and' [not' take', (or' [takenext', dropnext'])]
 
-    dereg <- mkReg [(take', Lit 1 1), (declr, Lit 0 1)]
-    reg <- mkReg [(take', input), (clr, Undef)]
+    dereg <- mkNReg "dereg" [(take', Lit 1 1), (declr, Lit 0 1)]
+    reg <- mkNReg "lstgr" [(take', input), (clr, Undef)]
     
     let
         ctrl = PipeStageLogic
@@ -274,10 +278,16 @@ stage' bufferdepth inputSignal' = do
 
         stgs = pipeCtrlStages pipectrl
 
-        ndelays = case map (downstreamDist np) downstreamStages of
+        ndelays = case map (downstreamDist np) (map pipeStageSignal downstreamStages) of
             [] -> 0
             s -> maximum s
- 
+
+        ds = mapSignal mapR inputSignal
+        mapR (PipelineStage p) = ls !! dist where
+            ls = pipeStageLogicStages p
+            dist = downstreamDist (pipeStageId p) inputSignal'
+        mapR x = x
+
         upstreamStages = queryUpstreamStages inputSignal
 
         stageid = case map pipeStageStageNum $ upstreamStages of
@@ -295,7 +305,7 @@ stage' bufferdepth inputSignal' = do
         rdySignal = Lit 1 1
 
     let f _ s = stageControl s rdySignal []
-    r <- lift $ stageControl inputSignal rdySignal []
+    r <- lift $ stageControl ds rdySignal []
     ls <- lift $ foldMapM f [1..ndelays] r
 
     let

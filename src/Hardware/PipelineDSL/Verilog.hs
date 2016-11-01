@@ -4,6 +4,7 @@ module Hardware.PipelineDSL.Verilog (
 ) where
 
 import Data.List (intercalate)
+import Data.Maybe (fromMaybe)
 
 import Hardware.PipelineDSL.Pipeline
 
@@ -33,7 +34,8 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (Lit val width) = (show width) ++ "'d" ++ (show val)
     vcode' (Alias n _) = n
     vcode' Undef = "'x"
-    vcode' (RegRef n _) = "reg_" ++ (show n)
+    vcode' (RegRef n (Reg _ Nothing)) = "reg_" ++ (show n)
+    vcode' (RegRef n (Reg _ (Just name))) = name ++ (show n)
     vcode' (Stage (LogicStage _ _ r)) = vcode' r
     vcode' (PipelineStage p) = vcode' $ head $ pipeStageLogicStages p
 
@@ -51,10 +53,11 @@ printSigs m = unlines (map printStg stgs) where
     stgs = smSignals s
 
 toVerilog m = (printSigs m) ++ (unlines $ map printStg stgs)  where
-    printStg (i, x@(Reg c)) = intercalate "\n" [decl] where
+    printStg (i, x@(Reg c mname)) = intercalate "\n" [decl] where
         width = maximum $ map (getSignalWidth . snd) c
 
-        reg = "reg_" ++ (show i)
+        name = fromMaybe "reg_" mname
+        reg = name ++ (show i)
         cond (e, v) =
             "if (" ++ (vcode e) ++ ")\n" ++
             "            " ++ reg ++ " <= " ++ (vcode v) ++ ";"
