@@ -15,7 +15,9 @@ module Hardware.PipelineDSL.Pipeline (
     LogicStage (..),
     simplify,
     getSignalWidth,
-    rPipe
+    rPipe,
+    pPort,
+    IPortNB (..)
 ) where
 
 import Control.Monad
@@ -38,6 +40,8 @@ data PStage = PStage { pipeStageId :: Int
                      , pipeStageDelaysNum :: Int
                      , pipeStageBufferDepth :: Int
                      , pipeStageLogicStages :: [Signal] }
+data IPortNB = IPortNB { portEn :: Signal
+                   , portData :: Signal }
 
 data MOps = Or | And | Sum | Mul
 data BOps = Sub | Equal | NotEqual
@@ -51,12 +55,14 @@ data Signal = Alias String Int -- name, width
             | BinaryOp BOps Signal Signal
             | Cond Signal Signal -- conditional signal valid, value
             | Undef
+            | IPipePortNB IPortNB -- enable sig
             | Stage LogicStage
             -- register output. managed separately outside of the HW monad
             | PipelineStage PStage
             | RegRef Int Reg -- register, inserts 1 clock delay
 
 -- list all pipeline stages that are inputs for a given signal
+
 queryUpstreamLStages :: Signal -> [LogicStage]
 queryUpstreamLStages (Stage x) = [x]
 queryUpstreamLStages (SigRef _ s) = queryUpstreamLStages s
@@ -64,6 +70,14 @@ queryUpstreamLStages (MultyOp _ s) = concat $ map queryUpstreamLStages s
 queryUpstreamLStages (BinaryOp _ s1 s2) = (queryUpstreamLStages s1) ++ (queryUpstreamLStages s2)
 queryUpstreamLStages (UnaryOp _ s) = queryUpstreamLStages s
 queryUpstreamLStages _ = []
+
+queryIPipePortNBs :: Signal -> [IPortNB]
+queryIPipePortNBs (IPipePortNB x) = [x]
+queryIPipePortNBs (SigRef _ s) = queryIPipePortNBs s
+queryIPipePortNBs (MultyOp _ s) = concat $ map queryIPipePortNBs s
+queryIPipePortNBs (BinaryOp _ s1 s2) = (queryIPipePortNBs s1) ++ (queryIPipePortNBs s2)
+queryIPipePortNBs (UnaryOp _ s) = queryIPipePortNBs s
+queryIPipePortNBs _ = []
 
 queryUpstreamStages :: Signal -> [PStage]
 queryUpstreamStages (PipelineStage x) = [x]
@@ -102,6 +116,7 @@ getSignalWidth (Alias _ s) = s
 getSignalWidth (RegRef _ (Reg s _)) = maximum $ map (getSignalWidth . snd) s
 getSignalWidth Undef = 0
 getSignalWidth (Stage ls) = getSignalWidth $ lsSignal ls
+getSignalWidth (IPipePortNB p) = getSignalWidth $ portData p
 
 mapSignal :: (Signal -> Signal) -> Signal -> Signal
 mapSignal f s =  mapSignal' (f s) where
@@ -218,6 +233,9 @@ mkReg :: [(Signal, Signal)] -> HW Signal
 mkReg = mkReg' Nothing
 mkNReg n = mkReg' (Just n)
 
+pPort :: Signal -> Signal -> Signal
+pPort en s = IPipePortNB $ IPortNB {portData = s, portEn = en}
+
 mkReg' :: Maybe String -> [(Signal, Signal)] -> HW Signal
 mkReg' name reginput = do
     n <- get
@@ -238,8 +256,11 @@ stageControl input vld downstreamStages = do
         not' = UnaryOp Not
 
         upstreamStages = queryUpstreamLStages input
+        upstreamPorts = queryIPipePortNBs input
         rdy = or' $ map (pslRdy . lsCtrl) $ upstreamStages
-        dep' = and' $ map (pslDe . lsCtrl) $ upstreamStages
+        deUpStgs = map (pslDe . lsCtrl) $ upstreamStages
+        deUIPortNBs = map portEn upstreamPorts
+        dep' = and' $ deUpStgs ++ deUIPortNBs
         drp = not' vld
         take' = and' [rdy, dep', not' drp]
         takenext' = and' $ map (pslTake . lsCtrl) $ downstreamStages

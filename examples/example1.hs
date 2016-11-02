@@ -11,7 +11,7 @@ t2 :: PipeM ()
 t2 = do
     m <- sigp $ Alias "data1" 32
     u <- sigp 899
-    d <- stage $ m -- 0
+    d <- stage $ pPort (Alias "data1en" 1) (Alias "data1" 32)
     d1 <- stage $ d + 7 + d -- 1
     d2 <- stage $ d1 + 19 -- 2
     d3 <- stage $ d - 13 + d2 -- 3

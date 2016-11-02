@@ -38,6 +38,7 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (RegRef n (Reg _ (Just name))) = name ++ (show n)
     vcode' (Stage (LogicStage _ _ r)) = vcode' r
     vcode' (PipelineStage p) = vcode' $ head $ pipeStageLogicStages p
+    vcode' (IPipePortNB p) = vcode' $ portData p
 
 print_width 1 = ""
 print_width n = "[" ++ (show $ n - 1) ++ ":0] "
