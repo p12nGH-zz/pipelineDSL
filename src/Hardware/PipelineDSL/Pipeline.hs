@@ -263,8 +263,9 @@ stageControl input vld downstreamStages = do
         dep' = and' $ deUpStgs ++ deUIPortNBs
         drp = not' vld
         take' = and' [rdy, dep', not' drp]
-        takenext' = and' $ map (pslTake . lsCtrl) $ downstreamStages
-        dropnext' = and' $ map (pslDrop . lsCtrl) $ downstreamStages
+        dsLStgs = concat $ map queryUpstreamLStages downstreamStages
+        takenext' = and' $ map (pslTake . lsCtrl) $ dsLStgs
+        dropnext' = and' $ map (pslDrop . lsCtrl) $ dsLStgs
         declr = and' [not' take', (or' [takenext', dropnext'])]
         clr = and' [not' take', (or' [takenext', dropnext'])]
 
@@ -276,7 +277,7 @@ stageControl input vld downstreamStages = do
             { pslRdy = rdy
             , pslDep = dep'
             , pslDe  = dereg
-            , pslRdyn = and' $ map (pslRdy . lsCtrl) $ downstreamStages
+            , pslRdyn = and' $ map (pslRdy . lsCtrl) $ dsLStgs
             , pslTake = take'
             , pslTakeNext = takenext'
             , pslDrop = drp
@@ -285,9 +286,10 @@ stageControl input vld downstreamStages = do
     return $ Stage $ LogicStage ctrl input reg
 
 stage :: Signal -> PipeM Signal
-stage = stage' 0
-stage' :: Int -> Signal -> PipeM Signal
-stage' bufferdepth inputSignal' = do
+stage = stage' (Lit 1 1) 0
+
+stage' :: Signal -> Int -> Signal -> PipeM Signal
+stage' rdySignal bufferdepth inputSignal' = do
     np <- get
     pipectrl <- ask
     put $ np + 1
@@ -300,9 +302,12 @@ stage' bufferdepth inputSignal' = do
 
         stgs = pipeCtrlStages pipectrl
 
-        ndelays = case map (downstreamDist np) (map pipeStageSignal downstreamStages) of
+        dsDistances = map (downstreamDist np) (map pipeStageSignal downstreamStages)
+        ndelays = case dsDistances of
             [] -> 0
             s -> maximum s
+        pickDsByDistance d = map (head . pipeStageLogicStages . fst) $
+            filter (\x -> (snd x) == d) (zip downstreamStages dsDistances) 
 
         ds = mapSignal mapR inputSignal
         mapR (PipelineStage p) = ls !! dist where
@@ -323,12 +328,9 @@ stage' bufferdepth inputSignal' = do
        
         name = "stg_" ++ (show np)
 
-        -- enable signal stageid
-        rdySignal = Lit 1 1
-
-    let f _ s = stageControl s rdySignal []
-    r <- lift $ stageControl ds rdySignal []
-    ls <- lift $ foldMapM f [1..ndelays] r
+    let f ds s = stageControl s rdySignal ds
+    r <- lift $ stageControl ds (Lit 1 1) (pickDsByDistance 0)
+    ls <- lift $ foldMapM f (map pickDsByDistance [1..ndelays]) r
 
     let
         self = PipelineStage stg
