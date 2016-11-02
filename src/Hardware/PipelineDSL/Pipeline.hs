@@ -2,6 +2,7 @@ module Hardware.PipelineDSL.Pipeline (
     sig,
     sigp,
     stage,
+    stagen,
     HW (..),
     PipeM (..),
     Signal (..),
@@ -27,6 +28,7 @@ import Control.Monad.Fix
 import Data.Ix (range)
 import Data.Bits (finiteBitSize, countLeadingZeros)
 import Control.Monad.RWS.Lazy hiding (Sum)
+import Data.Maybe (fromMaybe)
 
 import Debug.Trace
 
@@ -249,7 +251,7 @@ data LogicStage = LogicStage { lsCtrl :: PipeStageLogic
                              , lsSignal :: Signal
                              , lsReg :: Signal }
 
-stageControl input vld downstreamStages = do
+stageControl name input vld downstreamStages = do
     let
         or' = MultyOp Or
         and' = MultyOp And
@@ -269,8 +271,8 @@ stageControl input vld downstreamStages = do
         declr = and' [not' take', (or' [takenext', dropnext'])]
         clr = and' [not' take', (or' [takenext', dropnext'])]
 
-    dereg <- mkNReg "dereg" [(take', Lit 1 1), (declr, Lit 0 1)]
-    reg <- mkNReg "lstgr" [(take', input), (clr, Undef)]
+    dereg <- mkNReg (name ++ "_dereg") [(take', Lit 1 1), (declr, Lit 0 1)]
+    reg <- mkNReg (name ++ "_lstgr") [(take', input), (clr, Undef)]
     
     let
         ctrl = PipeStageLogic
@@ -286,10 +288,13 @@ stageControl input vld downstreamStages = do
     return $ Stage $ LogicStage ctrl input reg
 
 stage :: Signal -> PipeM Signal
-stage = stage' (Lit 1 1) 0
+stage = stage' Nothing (Lit 1 1) 0
 
-stage' :: Signal -> Int -> Signal -> PipeM Signal
-stage' rdySignal bufferdepth inputSignal' = do
+stagen :: String -> Signal -> PipeM Signal
+stagen name s = stage' (Just name) (Lit 1 1) 0 s
+
+stage' :: (Maybe String) -> Signal -> Int -> Signal -> PipeM Signal
+stage' mname rdySignal bufferdepth inputSignal' = do
     np <- get
     pipectrl <- ask
     put $ np + 1
@@ -326,10 +331,11 @@ stage' rdySignal bufferdepth inputSignal' = do
         hasMeUpstream s = elem np $ map pipeStageId $ pipeStageUpstreamStages s
         downstreamStages = filter hasMeUpstream allStagesInPipeline
        
-        name = "stg_" ++ (show np)
+        name = fromMaybe ("stg_" ++ (show np)) mname
+        stageControl' = stageControl name
 
-    let f ds s = stageControl s rdySignal ds
-    r <- lift $ stageControl ds (Lit 1 1) (pickDsByDistance 0)
+    let f ds s = stageControl' s (Lit 1 1) ds
+    r <- lift $ stageControl' ds rdySignal (pickDsByDistance 0)
     ls <- lift $ foldMapM f (map pickDsByDistance [1..ndelays]) r
 
     let
