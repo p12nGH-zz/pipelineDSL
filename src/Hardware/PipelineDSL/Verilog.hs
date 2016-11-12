@@ -22,12 +22,13 @@ uOpsSign Neg = "-"
 
 vcode :: Signal -> String
 vcode = vcode' . simplify . simplify . simplify . simplify  where
-    vcode' (SigRef n _) = "sig_" ++ (show n)
+    vcode' (SigRef n Nothing _) = "sig_" ++ (show n)
+    vcode' (SigRef _ (Just n) _) = n
     vcode' (MultyOp o ops) = "(" ++ intercalate (mOpsSign o) (map vcode' ops) ++ ")"
     vcode' (BinaryOp o op1 op2) = "(" ++ (vcode' op1) ++ (bOpsSign o) ++ (vcode' op2) ++ ")"
 
     vcode' (UnaryOp o op@(Alias _ _)) = (uOpsSign o)  ++ (vcode' op)
-    vcode' (UnaryOp o op@(SigRef _ _)) = (uOpsSign o)  ++ (vcode' op)
+    vcode' (UnaryOp o op@(SigRef _ _ _)) = (uOpsSign o)  ++ (vcode' op)
     vcode' (UnaryOp o op@(RegRef _ _)) = (uOpsSign o)  ++ (vcode' op)
     vcode' (UnaryOp o op) = (uOpsSign o) ++ "(" ++ (vcode' op) ++ ")"
 

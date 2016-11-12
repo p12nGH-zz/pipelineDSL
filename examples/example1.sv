@@ -12,6 +12,7 @@ end
 logic [31:0] data1 = 'x;
 logic data1en = 0;
 logic [31:0] sig0;
+logic en = 0;
 
 task w16(input int b);
     @(posedge clk);

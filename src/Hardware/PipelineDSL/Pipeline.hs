@@ -18,7 +18,9 @@ module Hardware.PipelineDSL.Pipeline (
     getSignalWidth,
     rPipe,
     pPort,
-    IPortNB (..)
+    IPortNB (..),
+    stageEn,
+    stageEnN
 ) where
 
 import Control.Monad
@@ -51,7 +53,7 @@ data UOps = Not | Neg | Signum | Abs
 
 data Signal = Alias String Int -- name, width
             | Lit Int Int -- toInteger, width can be fixed or any (value, width)
-            | SigRef Int Signal
+            | SigRef Int (Maybe String) Signal
             | UnaryOp UOps Signal
             | MultyOp MOps [Signal]
             | BinaryOp BOps Signal Signal
@@ -67,7 +69,7 @@ data Signal = Alias String Int -- name, width
 
 queryUpstreamLStages :: Signal -> [LogicStage]
 queryUpstreamLStages (Stage x) = [x]
-queryUpstreamLStages (SigRef _ s) = queryUpstreamLStages s
+queryUpstreamLStages (SigRef _ _ s) = queryUpstreamLStages s
 queryUpstreamLStages (MultyOp _ s) = concat $ map queryUpstreamLStages s
 queryUpstreamLStages (BinaryOp _ s1 s2) = (queryUpstreamLStages s1) ++ (queryUpstreamLStages s2)
 queryUpstreamLStages (UnaryOp _ s) = queryUpstreamLStages s
@@ -75,7 +77,7 @@ queryUpstreamLStages _ = []
 
 queryIPipePortNBs :: Signal -> [IPortNB]
 queryIPipePortNBs (IPipePortNB x) = [x]
-queryIPipePortNBs (SigRef _ s) = queryIPipePortNBs s
+queryIPipePortNBs (SigRef _ _ s) = queryIPipePortNBs s
 queryIPipePortNBs (MultyOp _ s) = concat $ map queryIPipePortNBs s
 queryIPipePortNBs (BinaryOp _ s1 s2) = (queryIPipePortNBs s1) ++ (queryIPipePortNBs s2)
 queryIPipePortNBs (UnaryOp _ s) = queryIPipePortNBs s
@@ -83,7 +85,7 @@ queryIPipePortNBs _ = []
 
 queryUpstreamStages :: Signal -> [PStage]
 queryUpstreamStages (PipelineStage x) = [x]
-queryUpstreamStages (SigRef _ s) = queryUpstreamStages s
+queryUpstreamStages (SigRef _ _ s) = queryUpstreamStages s
 queryUpstreamStages (MultyOp _ s) = concat $ map queryUpstreamStages s
 queryUpstreamStages (BinaryOp _ s1 s2) = (queryUpstreamStages s1) ++ (queryUpstreamStages s2)
 queryUpstreamStages (UnaryOp _ s) = queryUpstreamStages s
@@ -106,7 +108,7 @@ downstreamDist stgid sig = r stgidPaths where
 
 getSignalWidth :: Signal -> Int
 getSignalWidth (PipelineStage s) = getSignalWidth $ pipeStageSignal s
-getSignalWidth (SigRef _ s) = getSignalWidth s
+getSignalWidth (SigRef _ _ s) = getSignalWidth s
 getSignalWidth (MultyOp _ []) = 0 -- never happens
 getSignalWidth (MultyOp _ s) = maximum $ map getSignalWidth s
 getSignalWidth (BinaryOp Equal _ _) = 1
@@ -126,7 +128,7 @@ mapSignal f s =  mapSignal' (f s) where
     mapSignal' (MultyOp op s) = MultyOp op $ map (mapSignal f) s
     mapSignal' (BinaryOp op s1 s2) = BinaryOp op (mapSignal f s1) (mapSignal f s2)
     mapSignal' (UnaryOp op s) = UnaryOp op (mapSignal f s)
-    mapSignal' (SigRef n s) = SigRef n (mapSignal f s)
+    mapSignal' (SigRef n name s) = SigRef n name (mapSignal f s)
     mapSignal' (Cond n s) = Cond (mapSignal f n) (mapSignal f s)
     mapSignal' x = x
 
@@ -136,7 +138,7 @@ rewrite f s =  f $ rewrite' (f s) where
     rewrite' (MultyOp op s) = f $ MultyOp op $ map (rewrite f) s
     rewrite' (BinaryOp op s1 s2) = f $ BinaryOp op (rewrite f s1) (rewrite f s2)
     rewrite' (UnaryOp op s) = f $ UnaryOp op (rewrite f s)
-    rewrite' (SigRef n s) = f $ SigRef n (rewrite f s)
+    rewrite' (SigRef n name s) = f $ SigRef n name (rewrite f s)
     rewrite' (Cond n s) = f $ Cond (rewrite f n) (rewrite f s)
     rewrite' x = x
 
@@ -223,11 +225,18 @@ rPipe f = (a', sigs, sm) where
 
 -- creates reference
 sig :: Signal -> HW Signal
-sig inputSignal = do
+sig inputSignal = sig' inputSignal Nothing
+
+sign :: Signal -> String -> HW Signal
+sign inputSignal name = sig' inputSignal (Just name)
+
+sig' :: Signal -> (Maybe String) -> HW Signal
+sig' inputSignal name = do
     n <- get
     put $ n + 1
     tell $ mempty {smSignals = [(n, inputSignal)]}
-    return $ SigRef n inputSignal
+    return $ SigRef n name inputSignal
+
 sigp :: Signal -> PipeM Signal
 sigp s = lift $ sig s
 
@@ -251,7 +260,7 @@ data LogicStage = LogicStage { lsCtrl :: PipeStageLogic
                              , lsSignal :: Signal
                              , lsReg :: Signal }
 
-stageControl name input vld downstreamStages = do
+stageControl name input vld rdy downstreamStages = do
     let
         or' = MultyOp Or
         and' = MultyOp And
@@ -259,12 +268,12 @@ stageControl name input vld downstreamStages = do
 
         upstreamStages = queryUpstreamLStages input
         upstreamPorts = queryIPipePortNBs input
-        rdy = or' $ map (pslRdy . lsCtrl) $ upstreamStages
+        rdy' = and' [rdy, (and' (map (pslRdy . lsCtrl) $ upstreamStages))]
         deUpStgs = map (pslDe . lsCtrl) $ upstreamStages
         deUIPortNBs = map portEn upstreamPorts
         dep' = and' $ deUpStgs ++ deUIPortNBs
         drp = not' vld
-        take' = and' [rdy, dep', not' drp]
+        take' = and' [rdy', dep', not' drp]
         dsLStgs = concat $ map queryUpstreamLStages downstreamStages
         takenext' = and' $ map (pslTake . lsCtrl) $ dsLStgs
         dropnext' = and' $ map (pslDrop . lsCtrl) $ dsLStgs
@@ -276,7 +285,7 @@ stageControl name input vld downstreamStages = do
     
     let
         ctrl = PipeStageLogic
-            { pslRdy = rdy
+            { pslRdy = rdy'
             , pslDep = dep'
             , pslDe  = dereg
             , pslRdyn = and' $ map (pslRdy . lsCtrl) $ dsLStgs
@@ -292,6 +301,12 @@ stage = stage' Nothing (Lit 1 1) 0
 
 stagen :: String -> Signal -> PipeM Signal
 stagen name s = stage' (Just name) (Lit 1 1) 0 s
+
+stageEn :: Signal -> Signal -> PipeM Signal
+stageEn en s = stage' Nothing en 0 s
+
+stageEnN :: String -> Signal -> Signal -> PipeM Signal
+stageEnN name en s = stage' (Just name) en 0 s
 
 stage' :: (Maybe String) -> Signal -> Int -> Signal -> PipeM Signal
 stage' mname rdySignal bufferdepth inputSignal' = do
@@ -311,6 +326,8 @@ stage' mname rdySignal bufferdepth inputSignal' = do
         ndelays = case dsDistances of
             [] -> 0
             s -> maximum s
+
+        -- get list of downstreamStages at distance d
         pickDsByDistance d = map (head . pipeStageLogicStages . fst) $
             filter (\x -> (snd x) == d) (zip downstreamStages dsDistances) 
 
@@ -334,8 +351,9 @@ stage' mname rdySignal bufferdepth inputSignal' = do
         name = fromMaybe ("stg_" ++ (show np)) mname
         stageControl' = stageControl name
 
-    let f ds s = stageControl' s (Lit 1 1) ds
-    r <- lift $ stageControl' ds rdySignal (pickDsByDistance 0)
+    let
+        f ds s = stageControl' s (Lit 1 1) (Lit 1 1) ds
+    r <- lift $ stageControl' ds vld rdySignal (pickDsByDistance 0)
     ls <- lift $ foldMapM f (map pickDsByDistance [1..ndelays]) r
 
     let

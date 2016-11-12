@@ -22,7 +22,8 @@ uOpsSign Neg = "n/s"
 
 code :: Signal -> String
 code = code' . simplify . simplify . simplify . simplify  where
-    code' (SigRef n _) = "sig_" ++ (show n)
+    code' (SigRef n Nothing _) = "sig_" ++ (show n)
+    code' (SigRef _ (Just n) _) = n
 
     code' (MultyOp o (op:[])) = code op
     code' (MultyOp o (op:ops)) = "(" ++ (mOpsSign o) ++ (code op) ++ " " ++ (code' (MultyOp o ops)) ++  ")"
