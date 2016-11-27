@@ -39,9 +39,11 @@ code = code' . simplify . simplify . simplify . simplify  where
 toSMT_LIBv2 m = signals ++ stages where
     (_, h, s) = rPipe m
     signals = unlines (map printSig $ smSignals h)
-    printSig (i, x) = assert where
+    printSig (i, x, name) = assert where
         width = getSignalWidth x
-        sig = "sig_" ++ (show i)
+        sig = case name of
+            Nothing -> "sig_" ++ (show i)
+            Just n -> n
         decl = "(declare-const " ++ sig ++ " (_ BitVec " ++ (show width) ++ "))\n"
         assert = decl ++ "(assert (= " ++ sig ++ " " ++ (code x) ++ "))"
     stages = unlines (map printStg $ smStages s)

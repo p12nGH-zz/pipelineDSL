@@ -190,7 +190,7 @@ instance Num Signal where
 
 type RefSt a = [(Int, a)]
 data Reg = Reg [(Signal, Signal)] (Maybe String)
-data SigMap = SigMap { smSignals :: RefSt Signal
+data SigMap = SigMap { smSignals :: [(Int, Signal, Maybe String)]
                      , smRegs ::RefSt Reg }
 data StgMap = StgMap {smStages :: RefSt PStage}
 
@@ -227,14 +227,14 @@ rPipe f = (a', sigs, sm) where
 sig :: Signal -> HW Signal
 sig inputSignal = sig' inputSignal Nothing
 
-sign :: Signal -> String -> HW Signal
-sign inputSignal name = sig' inputSignal (Just name)
+sign :: String -> Signal -> HW Signal
+sign name inputSignal = sig' inputSignal (Just name)
 
 sig' :: Signal -> (Maybe String) -> HW Signal
 sig' inputSignal name = do
     n <- get
     put $ n + 1
-    tell $ mempty {smSignals = [(n, inputSignal)]}
+    tell $ mempty {smSignals = [(n, inputSignal, name)]}
     return $ SigRef n name inputSignal
 
 sigp :: Signal -> PipeM Signal
@@ -260,7 +260,7 @@ data LogicStage = LogicStage { lsCtrl :: PipeStageLogic
                              , lsSignal :: Signal
                              , lsReg :: Signal }
 
-stageControl name input vld rdy downstreamStages = do
+stageControl name input vld rdy downstreamStages = mfix $ \me -> do
     let
         or' = MultyOp Or
         and' = MultyOp And
@@ -273,7 +273,8 @@ stageControl name input vld rdy downstreamStages = do
         deUIPortNBs = map portEn upstreamPorts
         dep' = and' $ deUpStgs ++ deUIPortNBs
         drp = not' vld
-        take' = and' [rdy', dep', not' drp]
+        (Stage mestg) = me
+        take' = and' [rdy', dep', not' drp, or' [not' $ pslDe $ lsCtrl mestg, takenext']]
         dsLStgs = concat $ map queryUpstreamLStages downstreamStages
         takenext' = and' $ map (pslTake . lsCtrl) $ dsLStgs
         dropnext' = and' $ map (pslDrop . lsCtrl) $ dsLStgs
@@ -282,6 +283,8 @@ stageControl name input vld rdy downstreamStages = do
 
     dereg <- mkNReg (name ++ "_dereg") [(take', Lit 1 1), (declr, Lit 0 1)]
     reg <- mkNReg (name ++ "_lstgr") [(take', input), (clr, Undef)]
+    sign (name ++ "_take") take'
+    sign (name ++ "_rdy") rdy'
     
     let
         ctrl = PipeStageLogic

@@ -45,9 +45,11 @@ print_width 1 = ""
 print_width n = "[" ++ (show $ n - 1) ++ ":0] "
 
 printSigs m = unlines (map printStg stgs) where
-    printStg (i, x) = intercalate "\n" [decl] where
+    printStg (i, x, name) = intercalate "\n" [decl] where
         width = getSignalWidth x
-        sig = "sig_" ++ (show i)
+        sig = case name of
+            Nothing -> "sig_" ++ (show i)
+            Just n -> n ++ "_" ++ (show i)
         decl' = "\n\nlogic " ++ (print_width width) ++ sig ++ ";\n" 
         assign = "assign " ++ sig ++ " = " ++ vcode x ++ ";"
         decl = decl' ++ assign
