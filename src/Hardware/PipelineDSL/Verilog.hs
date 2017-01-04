@@ -35,8 +35,8 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (Lit val width) = (show width) ++ "'d" ++ (show val)
     vcode' (Alias n _) = n
     vcode' Undef = "'x"
-    vcode' (RegRef n (Reg _ Nothing)) = "reg_" ++ (show n)
-    vcode' (RegRef n (Reg _ (Just name))) = name ++ (show n)
+    vcode' (RegRef n (Reg _ _ Nothing)) = "reg_" ++ (show n)
+    vcode' (RegRef n (Reg _ _ (Just name))) = name ++ (show n)
     vcode' (Stage (LogicStage _ _ r)) = vcode' r
     vcode' (PipelineStage p) = vcode' $ head $ pipeStageLogicStages p
     vcode' (IPipePortNB p) = vcode' $ portData p
@@ -57,7 +57,7 @@ printSigs m = unlines (map printStg stgs) where
     stgs = smSignals s
 
 toVerilog m = (printSigs m) ++ (unlines $ map printStg stgs)  where
-    printStg (i, x@(Reg c mname)) = intercalate "\n" [decl] where
+    printStg (i, x@(Reg c reset_value mname)) = intercalate "\n" [decl] where
         width = maximum $ map (getSignalWidth . snd) c
 
         name = fromMaybe "reg_" mname
@@ -70,7 +70,7 @@ toVerilog m = (printSigs m) ++ (unlines $ map printStg stgs)  where
         decl = "\nlogic " ++ (print_width width) ++ reg ++ ";\n" ++
             "always @(posedge clk or negedge rst_n) begin\n" ++
             "    if (rst_n == 0) begin\n" ++
-            "        " ++ reg ++ " <= '0;\n" ++
+            "        " ++ reg ++ " <= " ++ (vcode reset_value) ++ ";\n" ++
             "    end else begin\n        " ++ condassigns ++
             "\n    end" ++  "\nend"
     (_, s, _) = rPipe m

@@ -117,7 +117,7 @@ getSignalWidth (UnaryOp _ s) = getSignalWidth s
 getSignalWidth (Cond _ s) = getSignalWidth s
 getSignalWidth (Lit _ s) = s
 getSignalWidth (Alias _ s) = s
-getSignalWidth (RegRef _ (Reg s _)) = maximum $ map (getSignalWidth . snd) s
+getSignalWidth (RegRef _ (Reg s _ _)) = maximum $ map (getSignalWidth . snd) s
 getSignalWidth Undef = 0
 getSignalWidth (Stage ls) = getSignalWidth $ lsSignal ls
 getSignalWidth (IPipePortNB p) = getSignalWidth $ portData p
@@ -189,7 +189,8 @@ instance Num Signal where
     fromInteger x = Lit (fromInteger x) 32
 
 type RefSt a = [(Int, a)]
-data Reg = Reg [(Signal, Signal)] (Maybe String)
+-- condition/value pairs, initial(reset) value, optional name
+data Reg = Reg [(Signal, Signal)] Signal (Maybe String)
 data SigMap = SigMap { smSignals :: [(Int, Signal, Maybe String)]
                      , smRegs ::RefSt Reg }
 data StgMap = StgMap {smStages :: RefSt PStage}
@@ -241,18 +242,20 @@ sigp :: Signal -> PipeM Signal
 sigp s = lift $ sig s
 
 mkReg :: [(Signal, Signal)] -> HW Signal
-mkReg = mkReg' Nothing
-mkNReg n = mkReg' (Just n)
+mkReg = mkReg' Nothing 0
+mkNReg n = mkReg' (Just n) 0
+mkNRegX n = mkReg' (Just n) Undef
 
 pPort :: Signal -> Signal -> Signal
 pPort en s = IPipePortNB $ IPortNB {portData = s, portEn = en}
 
-mkReg' :: Maybe String -> [(Signal, Signal)] -> HW Signal
-mkReg' name reginput = do
+mkReg' :: Maybe String -> Signal -> [(Signal, Signal)]  -> HW Signal
+mkReg' name reset_value reginput = do
     n <- get
     put $ n + 1
-    tell $ mempty {smRegs = [(n, Reg reginput name)]}
-    return $ RegRef n $ Reg reginput name
+    let r =  Reg reginput reset_value name
+    tell $ mempty {smRegs = [(n, r)]}
+    return $ RegRef n r
 
  
 
@@ -282,7 +285,7 @@ stageControl name input vld rdy downstreamStages = mfix $ \me -> do
         clr = and' [not' take', (or' [takenext', dropnext'])]
 
     dereg <- mkNReg (name ++ "_dereg") [(take', Lit 1 1), (declr, Lit 0 1)]
-    reg <- mkNReg (name ++ "_lstgr") [(take', input), (clr, Undef)]
+    reg <- mkNRegX (name ++ "_lstgr") [(take', input), (clr, Undef)]
     sign (name ++ "_take") take'
     sign (name ++ "_rdy") rdy'
     
