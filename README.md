@@ -2,7 +2,7 @@
 A Haskell DSL for describing hardware pipelines.
 
 ## Example
-A small example that with a small pipeline with 5 stages (named d0-d5) and interfacing with Verilog code. 
+A small example with a 5 stage pipeline (stages named d0-d5) and interfacing with Verilog code(using Alias data constructor).
 ```haskell
 pipeline_1 = do
     m <- sigp $ Alias "data1" 32
@@ -16,3 +16,5 @@ pipeline_1 = do
     d4 <- stagen "d4" d3
     d5 <- stageEnN "d5" en d4
 ```
+d5 stage has an external enable signal("en"). When this signal is low all the upstream stages are forced to hold their data until d5 enable goes high.
+![pipe1](https://cloud.githubusercontent.com/assets/1516471/21633857/a9b7268e-d207-11e6-8d12-69d7521d5db4.png)
