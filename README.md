@@ -2,7 +2,7 @@
 A Haskell DSL for describing hardware pipelines.
 
 ## Example
-A small example that with a small pipeline with 5 stages (named d0-d5) and interfacing with Verilog code. 
+A small example with a 5 stage pipeline (stages named d0-d5) and interfacing with Verilog code. 
 ```haskell
 pipeline_1 = do
     m <- sigp $ Alias "data1" 32
