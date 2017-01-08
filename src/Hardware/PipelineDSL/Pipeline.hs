@@ -12,11 +12,13 @@ module Hardware.PipelineDSL.Pipeline (
     MOps (..),
     BOps (..),
     UOps (..),
+    CmpOp (..),
     Reg (..),
     LogicStage (..),
     simplify,
     getSignalWidth,
     rPipe,
+    rHW,
     pPort,
     IPortNB (..),
     stageEn,
@@ -47,8 +49,9 @@ data PStage = PStage { pipeStageId :: Int
 data IPortNB = IPortNB { portEn :: Signal
                    , portData :: Signal }
 
+data CmpOp = Equal | NotEqual | LessOrEqual | GreaterOrEqual | Less | Greater
 data MOps = Or | And | Sum | Mul
-data BOps = Sub | Equal | NotEqual
+data BOps = Sub | Cmp CmpOp
 data UOps = Not | Neg | Signum | Abs
 
 data Signal = Alias String Int -- name, width
@@ -111,7 +114,7 @@ getSignalWidth (PipelineStage s) = getSignalWidth $ pipeStageSignal s
 getSignalWidth (SigRef _ _ s) = getSignalWidth s
 getSignalWidth (MultyOp _ []) = 0 -- never happens
 getSignalWidth (MultyOp _ s) = maximum $ map getSignalWidth s
-getSignalWidth (BinaryOp Equal _ _) = 1
+getSignalWidth (BinaryOp (Cmp _) _ _) = 1
 getSignalWidth (BinaryOp _ s1 s2) = max (getSignalWidth s1) (getSignalWidth s2)
 getSignalWidth (UnaryOp _ s) = getSignalWidth s
 getSignalWidth (Cond _ s) = getSignalWidth s
@@ -223,6 +226,9 @@ rPipe f = (a', sigs, sm) where
     pipectrl = PipeCtrl stgs
     m = runRWST f pipectrl 0 -- Pipe
     r@((a', _, sm), _, sigs) = runRWS m () 0 -- HW
+
+rHW m = (a, sigs, sm) where
+    r@((a, _, sm), _, sigs) = runRWS m () 0
 
 -- creates reference
 sig :: Signal -> HW Signal

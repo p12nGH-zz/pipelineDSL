@@ -14,8 +14,8 @@ mOpsSign Sum = "bvadd "
 mOpsSign Mul = "bvmul "
 
 bOpsSign Sub = "bvsub "
-bOpsSign Equal = "="
-bOpsSign NotEqual = "n/s"
+bOpsSign (Cmp Equal) = "="
+bOpsSign (Cmp NotEqual) = "n/s"
 
 uOpsSign Not = "bvnot"
 uOpsSign Neg = "n/s"

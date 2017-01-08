@@ -1,6 +1,7 @@
 -- | Verilog code generation
 module Hardware.PipelineDSL.Verilog (
-    toVerilog
+    toVerilog,
+    toVerilogHW
 ) where
 
 import Data.List (intercalate)
@@ -14,8 +15,12 @@ mOpsSign Sum = " + "
 mOpsSign Mul = " * "
 
 bOpsSign Sub = " - "
-bOpsSign Equal = " == "
-bOpsSign NotEqual = "!="
+bOpsSign (Cmp Equal) = " == "
+bOpsSign (Cmp NotEqual) = "!="
+bOpsSign (Cmp LessOrEqual) = "<="
+bOpsSign (Cmp GreaterOrEqual) = ">="
+bOpsSign (Cmp Less) = "<"
+bOpsSign (Cmp Greater) = ">"
 
 uOpsSign Not = "~"
 uOpsSign Neg = "-"
@@ -44,7 +49,7 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
 print_width 1 = ""
 print_width n = "[" ++ (show $ n - 1) ++ ":0] "
 
-printSigs m = unlines (map printStg stgs) where
+printSigs s = unlines (map printStg stgs) where
     printStg (i, x, name) = intercalate "\n" [decl] where
         width = getSignalWidth x
         sig = case name of
@@ -53,10 +58,15 @@ printSigs m = unlines (map printStg stgs) where
         decl' = "\n\nlogic " ++ (print_width width) ++ sig ++ ";\n" 
         assign = "assign " ++ sig ++ " = " ++ vcode x ++ ";"
         decl = decl' ++ assign
-    (_, s, _) = rPipe m
     stgs = smSignals s
 
-toVerilog m = (printSigs m) ++ (unlines $ map printStg stgs)  where
+toVerilog m = toVerilog' s where
+    (_, s, _) = rPipe m
+
+toVerilogHW m = toVerilog' s where
+    (_, s, _) = rHW m
+
+toVerilog' s = (printSigs s) ++ (unlines $ map printStg stgs)  where
     printStg (i, x@(Reg c reset_value mname)) = intercalate "\n" [decl] where
         width = maximum $ map (getSignalWidth . snd) c
 
@@ -73,5 +83,4 @@ toVerilog m = (printSigs m) ++ (unlines $ map printStg stgs)  where
             "        " ++ reg ++ " <= " ++ (vcode reset_value) ++ ";\n" ++
             "    end else begin\n        " ++ condassigns ++
             "\n    end" ++  "\nend"
-    (_, s, _) = rPipe m
     stgs = smRegs s
