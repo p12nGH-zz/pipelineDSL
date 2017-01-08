@@ -12,10 +12,12 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  -- exposed-modules:     
+  exposed-modules:     Hardware.PipelineDSL,
+                       Hardware.PipelineDSL.Verilog,
+                       Hardware.PipelineDSL.Pipeline
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.9 && <4.10
+  build-depends:       base >=4.9 && <4.10, mtl
   hs-source-dirs:      src
   default-language:    Haskell2010
 
