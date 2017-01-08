@@ -40,7 +40,7 @@ toSMT_LIBv2 m = signals ++ stages where
     (_, h, s) = rPipe m
     signals = unlines (map printSig $ smSignals h)
     printSig (i, x, name) = assert where
-        width = getSignalWidth x
+        width = getSignalWidth (Just i) x
         sig = case name of
             Nothing -> "sig_" ++ (show i)
             Just n -> n
@@ -49,7 +49,7 @@ toSMT_LIBv2 m = signals ++ stages where
     stages = unlines (map printStg $ smStages s)
     printStg (i, pstg) = assert where
         s = pipeStageSignal pstg
-        width = getSignalWidth  s
+        width = getSignalWidth (Just i) s
         reg = "ps_" ++ (show i)
         decl = "(declare-const " ++ reg ++ " (_ BitVec " ++ (show width) ++ "))\n"
         assert = decl ++ "(assert (= " ++ reg ++ " " ++ (code s) ++ "))"

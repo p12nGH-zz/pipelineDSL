@@ -22,7 +22,8 @@ module Hardware.PipelineDSL.Pipeline (
     pPort,
     IPortNB (..),
     stageEn,
-    stageEnN
+    stageEnN,
+    mkReg
 ) where
 
 import Control.Monad
@@ -109,21 +110,26 @@ downstreamDist stgid sig = r stgidPaths where
     r [] = 0
     r x = maximum $ map fst x
 
-getSignalWidth :: Signal -> Int
-getSignalWidth (PipelineStage s) = getSignalWidth $ pipeStageSignal s
-getSignalWidth (SigRef _ _ s) = getSignalWidth s
-getSignalWidth (MultyOp _ []) = 0 -- never happens
-getSignalWidth (MultyOp _ s) = maximum $ map getSignalWidth s
-getSignalWidth (BinaryOp (Cmp _) _ _) = 1
-getSignalWidth (BinaryOp _ s1 s2) = max (getSignalWidth s1) (getSignalWidth s2)
-getSignalWidth (UnaryOp _ s) = getSignalWidth s
-getSignalWidth (Cond _ s) = getSignalWidth s
-getSignalWidth (Lit _ s) = s
-getSignalWidth (Alias _ s) = s
-getSignalWidth (RegRef _ (Reg s _ _)) = maximum $ map (getSignalWidth . snd) s
-getSignalWidth Undef = 0
-getSignalWidth (Stage ls) = getSignalWidth $ lsSignal ls
-getSignalWidth (IPipePortNB p) = getSignalWidth $ portData p
+-- first maybe arg allows refs to reference themselves
+-- without creating circular dependencies
+getSignalWidth :: (Maybe Int) -> Signal -> Int
+getSignalWidth r (PipelineStage s) = getSignalWidth r $ pipeStageSignal s
+getSignalWidth Nothing (SigRef _ _ s) = getSignalWidth Nothing s
+getSignalWidth r@(Just ref) (SigRef ref' _ s) = if ref == ref' then 0 else getSignalWidth r s
+getSignalWidth r (MultyOp _ []) = 0 -- never happens
+getSignalWidth r (MultyOp _ s) = maximum $ map (getSignalWidth r) s
+getSignalWidth r (BinaryOp (Cmp _) _ _) = 1
+getSignalWidth r (BinaryOp _ s1 s2) = max (getSignalWidth r s1) (getSignalWidth r s2)
+getSignalWidth r (UnaryOp _ s) = getSignalWidth r s
+getSignalWidth r (Cond _ s) = getSignalWidth r s
+getSignalWidth r (Lit _ s) = s
+getSignalWidth r (Alias _ s) = s
+getSignalWidth Nothing (RegRef _ (Reg s _ _)) = maximum $ map ((getSignalWidth Nothing) . snd) s
+getSignalWidth r@(Just ref) (RegRef ref' (Reg s _ _)) = if ref == ref' then 0 else
+    maximum $ map ((getSignalWidth r) . snd) s
+getSignalWidth r Undef = 0
+getSignalWidth r (Stage ls) = getSignalWidth r $ lsSignal ls
+getSignalWidth r (IPipePortNB p) = getSignalWidth r $ portData p
 
 mapSignal :: (Signal -> Signal) -> Signal -> Signal
 mapSignal f s =  mapSignal' (f s) where
@@ -227,8 +233,8 @@ rPipe f = (a', sigs, sm) where
     m = runRWST f pipectrl 0 -- Pipe
     r@((a', _, sm), _, sigs) = runRWS m () 0 -- HW
 
-rHW m = (a, sigs, sm) where
-    r@((a, _, sm), _, sigs) = runRWS m () 0
+rHW m = (a, sigs) where
+    r@(a, _, sigs) = runRWS m () 0
 
 -- creates reference
 sig :: Signal -> HW Signal

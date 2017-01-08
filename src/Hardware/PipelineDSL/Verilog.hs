@@ -51,7 +51,7 @@ print_width n = "[" ++ (show $ n - 1) ++ ":0] "
 
 printSigs s = unlines (map printStg stgs) where
     printStg (i, x, name) = intercalate "\n" [decl] where
-        width = getSignalWidth x
+        width = getSignalWidth (Just i) x
         sig = case name of
             Nothing -> "sig_" ++ (show i)
             Just n -> n ++ "_" ++ (show i)
@@ -64,11 +64,11 @@ toVerilog m = toVerilog' s where
     (_, s, _) = rPipe m
 
 toVerilogHW m = toVerilog' s where
-    (_, s, _) = rHW m
+    (_, s) = rHW m
 
 toVerilog' s = (printSigs s) ++ (unlines $ map printStg stgs)  where
     printStg (i, x@(Reg c reset_value mname)) = intercalate "\n" [decl] where
-        width = maximum $ map (getSignalWidth . snd) c
+        width = maximum $ map ((getSignalWidth (Just i)). snd) c
 
         name = fromMaybe "reg_" mname
         reg = name ++ (show i)
