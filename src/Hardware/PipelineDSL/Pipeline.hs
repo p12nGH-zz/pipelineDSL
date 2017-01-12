@@ -1,6 +1,8 @@
 module Hardware.PipelineDSL.Pipeline (
     sig,
     sigp,
+    sign,
+    sigalias,
     stage,
     stagen,
     HW (..),
@@ -14,6 +16,7 @@ module Hardware.PipelineDSL.Pipeline (
     UOps (..),
     CmpOp (..),
     Reg (..),
+    HWName (..),
     LogicStage (..),
     simplify,
     getSignalWidth,
@@ -55,9 +58,13 @@ data MOps = Or | And | Sum | Mul
 data BOps = Sub | Cmp CmpOp
 data UOps = Not | Neg | Signum | Abs
 
+-- use this name in generated code, pick any, use exactly this one or like this one
+-- with suffix to avoid conflicts
+data HWName = HWNNoName | HWNExact String | HWNLike String
+
 data Signal = Alias String Int -- name, width
             | Lit Int Int -- toInteger, width can be fixed or any (value, width)
-            | SigRef Int (Maybe String) Signal
+            | SigRef Int HWName Signal
             | UnaryOp UOps Signal
             | MultyOp MOps [Signal]
             | BinaryOp BOps Signal Signal
@@ -200,7 +207,7 @@ instance Num Signal where
 type RefSt a = [(Int, a)]
 -- condition/value pairs, initial(reset) value, optional name
 data Reg = Reg [(Signal, Signal)] Signal (Maybe String)
-data SigMap = SigMap { smSignals :: [(Int, Signal, Maybe String)]
+data SigMap = SigMap { smSignals :: [(Int, Signal, HWName)]
                      , smRegs ::RefSt Reg }
 data StgMap = StgMap {smStages :: RefSt PStage}
 
@@ -238,12 +245,15 @@ rHW m = (a, sigs) where
 
 -- creates reference
 sig :: Signal -> HW Signal
-sig inputSignal = sig' inputSignal Nothing
+sig inputSignal = sig' inputSignal HWNNoName
 
 sign :: String -> Signal -> HW Signal
-sign name inputSignal = sig' inputSignal (Just name)
+sign name inputSignal = sig' inputSignal (HWNLike name)
 
-sig' :: Signal -> (Maybe String) -> HW Signal
+sigalias :: String -> Signal -> HW Signal
+sigalias name inputSignal = sig' inputSignal (HWNExact name)
+
+sig' :: Signal -> HWName -> HW Signal
 sig' inputSignal name = do
     n <- get
     put $ n + 1

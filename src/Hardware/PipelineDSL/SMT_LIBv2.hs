@@ -22,8 +22,9 @@ uOpsSign Neg = "n/s"
 
 code :: Signal -> String
 code = code' . simplify . simplify . simplify . simplify  where
-    code' (SigRef n Nothing _) = "sig_" ++ (show n)
-    code' (SigRef _ (Just n) _) = n
+    code' (SigRef n HWNNoName _) = "sig_" ++ (show n)
+    code' (SigRef _ (HWNExact n) _) = n
+    code' (SigRef _ (HWNLike n) _) = n ++ "_" ++ (show n)
 
     code' (MultyOp o (op:[])) = code op
     code' (MultyOp o (op:ops)) = "(" ++ (mOpsSign o) ++ (code op) ++ " " ++ (code' (MultyOp o ops)) ++  ")"
@@ -42,8 +43,9 @@ toSMT_LIBv2 m = signals ++ stages where
     printSig (i, x, name) = assert where
         width = getSignalWidth (Just i) x
         sig = case name of
-            Nothing -> "sig_" ++ (show i)
-            Just n -> n
+            HWNNoName -> "sig_" ++ (show i)
+            HWNExact n -> n
+            HWNLike n -> n ++ "_" ++ (show i)
         decl = "(declare-const " ++ sig ++ " (_ BitVec " ++ (show width) ++ "))\n"
         assert = decl ++ "(assert (= " ++ sig ++ " " ++ (code x) ++ "))"
     stages = unlines (map printStg $ smStages s)

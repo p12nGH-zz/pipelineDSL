@@ -27,8 +27,9 @@ uOpsSign Neg = "-"
 
 vcode :: Signal -> String
 vcode = vcode' . simplify . simplify . simplify . simplify  where
-    vcode' (SigRef n Nothing _) = "sig_" ++ (show n)
-    vcode' (SigRef _ (Just n) _) = n
+    vcode' (SigRef n HWNNoName _) = "sig_" ++ (show n)
+    vcode' (SigRef _ (HWNExact n) _) = n
+    vcode' (SigRef _ (HWNLike n) _) = n ++ "_" ++ (show n)
     vcode' (MultyOp o ops) = "(" ++ intercalate (mOpsSign o) (map vcode' ops) ++ ")"
     vcode' (BinaryOp o op1 op2) = "(" ++ (vcode' op1) ++ (bOpsSign o) ++ (vcode' op2) ++ ")"
 
@@ -53,8 +54,9 @@ printSigs s = unlines (map printStg stgs) where
     printStg (i, x, name) = intercalate "\n" [decl] where
         width = getSignalWidth (Just i) x
         sig = case name of
-            Nothing -> "sig_" ++ (show i)
-            Just n -> n ++ "_" ++ (show i)
+            HWNNoName -> "sig_" ++ (show i)
+            HWNLike n -> n ++ "_" ++ (show i)
+            HWNExact n -> n
         decl' = "\n\nlogic " ++ (print_width width) ++ sig ++ ";\n" 
         assign = "assign " ++ sig ++ " = " ++ vcode x ++ ";"
         decl = decl' ++ assign
