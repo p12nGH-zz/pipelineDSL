@@ -14,8 +14,9 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Hardware.PipelineDSL,
                        Hardware.PipelineDSL.Verilog,
-                       Hardware.PipelineDSL.HW
-                       Hardware.PipelineDSL.Pipeline
+                       Hardware.PipelineDSL.HW,
+                       Hardware.PipelineDSL.Pipeline,
+                       Hardware.PipelineDSL.Module
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.9 && <4.10, mtl
@@ -25,5 +26,11 @@ library
 executable example1
   default-language:    Haskell2010
   main-is:             example1.hs
+  hs-source-dirs:      examples,src
+  build-depends:       base >=4.8, mtl
+
+executable module_example
+  default-language:    Haskell2010
+  main-is:             module_example.hs
   hs-source-dirs:      examples,src
   build-depends:       base >=4.8, mtl

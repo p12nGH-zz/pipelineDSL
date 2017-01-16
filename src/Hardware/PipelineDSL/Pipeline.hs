@@ -81,16 +81,6 @@ downstreamDist stgid sig = r stgidPaths where
     r [] = 0
     r x = maximum $ map fst x
 
-mapSignal :: (Signal -> Signal) -> Signal -> Signal
-mapSignal f s =  mapSignal' (f s) where
-    -- mapSignal aplies the transformation, mapSignal' does structure-preserving traversing
-    mapSignal' (MultyOp op s) = MultyOp op $ map (mapSignal f) s
-    mapSignal' (BinaryOp op s1 s2) = BinaryOp op (mapSignal f s1) (mapSignal f s2)
-    mapSignal' (UnaryOp op s) = UnaryOp op (mapSignal f s)
-    mapSignal' (SigRef n name s) = SigRef n name (mapSignal f s)
-    mapSignal' (Cond n s) = Cond (mapSignal f n) (mapSignal f s)
-    mapSignal' x = x
-
 data StgMap = StgMap { smStages :: [(Int, PStage)] }
 
 instance Monoid StgMap where
