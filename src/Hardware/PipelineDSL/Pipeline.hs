@@ -1,24 +1,13 @@
 module Hardware.PipelineDSL.Pipeline (
-    sig,
     sigp,
-    sign,
-    sigalias,
     stage,
     stagen,
     HW (..),
     PipeM (..),
-    Signal (..),
     PStage (..),
-    SigMap (..),
     StgMap (..),
-    MOps (..),
-    BOps (..),
-    UOps (..),
-    CmpOp (..),
     Reg (..),
-    HWName (..),
     LogicStage (..),
-    simplify,
     getSignalWidth,
     rPipe,
     rHW,
@@ -26,7 +15,7 @@ module Hardware.PipelineDSL.Pipeline (
     IPortNB (..),
     stageEn,
     stageEnN,
-    mkReg
+    verilog
 ) where
 
 import Control.Monad
@@ -36,9 +25,10 @@ import Control.Monad.Fix
 import Data.Ix (range)
 import Data.Bits (finiteBitSize, countLeadingZeros)
 import Control.Monad.RWS.Lazy hiding (Sum)
-import Data.Maybe (fromMaybe)
-
-import Debug.Trace
+import Data.Maybe (fromMaybe, catMaybes)
+import Hardware.PipelineDSL.HW hiding (Signal)
+import qualified Hardware.PipelineDSL.HW as HW
+import Hardware.PipelineDSL.Verilog
 
 data PStage = PStage { pipeStageId :: Int
                      , pipeStageSignal :: Signal
@@ -50,57 +40,31 @@ data PStage = PStage { pipeStageId :: Int
                      , pipeStageDelaysNum :: Int
                      , pipeStageBufferDepth :: Int
                      , pipeStageLogicStages :: [Signal] }
+
 data IPortNB = IPortNB { portEn :: Signal
-                   , portData :: Signal }
+                       , portData :: Signal }
 
-data CmpOp = Equal | NotEqual | LessOrEqual | GreaterOrEqual | Less | Greater
-data MOps = Or | And | Sum | Mul
-data BOps = Sub | Cmp CmpOp
-data UOps = Not | Neg | Signum | Abs
-
--- use this name in generated code, pick any, use exactly this one or like this one
--- with suffix to avoid conflicts
-data HWName = HWNNoName | HWNExact String | HWNLike String
-
-data Signal = Alias String Int -- name, width
-            | Lit Int Int -- toInteger, width can be fixed or any (value, width)
-            | SigRef Int HWName Signal
-            | UnaryOp UOps Signal
-            | MultyOp MOps [Signal]
-            | BinaryOp BOps Signal Signal
-            | Cond Signal Signal -- conditional signal valid, value
-            | Undef
-            | IPipePortNB IPortNB -- enable sig
-            | Stage LogicStage
-            -- register output. managed separately outside of the HW monad
-            | PipelineStage PStage
-            | RegRef Int Reg -- register, inserts 1 clock delay
-
+data ASTHook = Stage LogicStage | PipelineStage PStage | IPipePortNB IPortNB
+type Signal = HW.Signal ASTHook
 -- list all pipeline stages that are inputs for a given signal
 
-queryUpstreamLStages :: Signal -> [LogicStage]
-queryUpstreamLStages (Stage x) = [x]
-queryUpstreamLStages (SigRef _ _ s) = queryUpstreamLStages s
-queryUpstreamLStages (MultyOp _ s) = concat $ map queryUpstreamLStages s
-queryUpstreamLStages (BinaryOp _ s1 s2) = (queryUpstreamLStages s1) ++ (queryUpstreamLStages s2)
-queryUpstreamLStages (UnaryOp _ s) = queryUpstreamLStages s
-queryUpstreamLStages _ = []
-
-queryIPipePortNBs :: Signal -> [IPortNB]
-queryIPipePortNBs (IPipePortNB x) = [x]
-queryIPipePortNBs (SigRef _ _ s) = queryIPipePortNBs s
-queryIPipePortNBs (MultyOp _ s) = concat $ map queryIPipePortNBs s
-queryIPipePortNBs (BinaryOp _ s1 s2) = (queryIPipePortNBs s1) ++ (queryIPipePortNBs s2)
-queryIPipePortNBs (UnaryOp _ s) = queryIPipePortNBs s
-queryIPipePortNBs _ = []
+filterHooks f s = catMaybes $ map f $ queryRefs s
 
 queryUpstreamStages :: Signal -> [PStage]
-queryUpstreamStages (PipelineStage x) = [x]
-queryUpstreamStages (SigRef _ _ s) = queryUpstreamStages s
-queryUpstreamStages (MultyOp _ s) = concat $ map queryUpstreamStages s
-queryUpstreamStages (BinaryOp _ s1 s2) = (queryUpstreamStages s1) ++ (queryUpstreamStages s2)
-queryUpstreamStages (UnaryOp _ s) = queryUpstreamStages s
-queryUpstreamStages _ = []
+queryUpstreamStages = filterHooks pipef
+
+queryIPipePortNBs :: Signal -> [IPortNB]
+queryIPipePortNBs = filterHooks portf
+
+queryUpstreamLStages :: Signal -> [LogicStage]
+queryUpstreamLStages = filterHooks lstgf
+
+pipef (PipelineStage p) = Just p
+pipef _ = Nothing
+portf (IPipePortNB p) = Just p
+portf _ = Nothing
+lstgf (Stage p) = Just p
+lstgf _ = Nothing
 
 -- longest distance to current stage
 -- shorter paths need to be compensated
@@ -117,27 +81,6 @@ downstreamDist stgid sig = r stgidPaths where
     r [] = 0
     r x = maximum $ map fst x
 
--- first maybe arg allows refs to reference themselves
--- without creating circular dependencies
-getSignalWidth :: (Maybe Int) -> Signal -> Int
-getSignalWidth r (PipelineStage s) = getSignalWidth r $ pipeStageSignal s
-getSignalWidth Nothing (SigRef _ _ s) = getSignalWidth Nothing s
-getSignalWidth r@(Just ref) (SigRef ref' _ s) = if ref == ref' then 0 else getSignalWidth r s
-getSignalWidth r (MultyOp _ []) = 0 -- never happens
-getSignalWidth r (MultyOp _ s) = maximum $ map (getSignalWidth r) s
-getSignalWidth r (BinaryOp (Cmp _) _ _) = 1
-getSignalWidth r (BinaryOp _ s1 s2) = max (getSignalWidth r s1) (getSignalWidth r s2)
-getSignalWidth r (UnaryOp _ s) = getSignalWidth r s
-getSignalWidth r (Cond _ s) = getSignalWidth r s
-getSignalWidth r (Lit _ s) = s
-getSignalWidth r (Alias _ s) = s
-getSignalWidth Nothing (RegRef _ (Reg s _ _)) = maximum $ map ((getSignalWidth Nothing) . snd) s
-getSignalWidth r@(Just ref) (RegRef ref' (Reg s _ _)) = if ref == ref' then 0 else
-    maximum $ map ((getSignalWidth r) . snd) s
-getSignalWidth r Undef = 0
-getSignalWidth r (Stage ls) = getSignalWidth r $ lsSignal ls
-getSignalWidth r (IPipePortNB p) = getSignalWidth r $ portData p
-
 mapSignal :: (Signal -> Signal) -> Signal -> Signal
 mapSignal f s =  mapSignal' (f s) where
     -- mapSignal aplies the transformation, mapSignal' does structure-preserving traversing
@@ -148,79 +91,13 @@ mapSignal f s =  mapSignal' (f s) where
     mapSignal' (Cond n s) = Cond (mapSignal f n) (mapSignal f s)
     mapSignal' x = x
 
-rewrite :: (Signal -> Signal) -> Signal -> Signal
-rewrite f s =  f $ rewrite' (f s) where
-    -- rewrite aplies the transformation, rewrite' does structure-preserving traversing
-    rewrite' (MultyOp op s) = f $ MultyOp op $ map (rewrite f) s
-    rewrite' (BinaryOp op s1 s2) = f $ BinaryOp op (rewrite f s1) (rewrite f s2)
-    rewrite' (UnaryOp op s) = f $ UnaryOp op (rewrite f s)
-    rewrite' (SigRef n name s) = f $ SigRef n name (rewrite f s)
-    rewrite' (Cond n s) = f $ Cond (rewrite f n) (rewrite f s)
-    rewrite' x = x
-
--- apply some rewrite rules to improve readability of generated verilog
--- use mapSignal to apply rules recursively
-simplify :: Signal -> Signal
-simplify = rewrite smpl where
-    smpl (UnaryOp Not (Lit 1 1)) = Lit 0 1
-    smpl (UnaryOp Not (Lit 0 1)) = Lit 1 1
-    smpl (UnaryOp Not (UnaryOp Not s)) = s
-
-    smpl (MultyOp Or s) = if (any (not . f0) s) then r1 else r where
-        r = case (filter f1 s) of 
-            [] -> Lit 1 1
-            [x] -> x
-            x -> MultyOp Or x
-
-    smpl (MultyOp And s) = r where
-        r = case (filter f0 s) of 
-            [] -> Lit 1 1
-            [x] -> x
-            x -> MultyOp And x
- 
-    smpl x = x
-
-    f1 (Lit 0 1) = False
-    f1 _ = True
-    f0 (Lit 1 1) = False
-    f0 _ = True
-
-    r0 = Lit 0 1
-    r1 = Lit 1 1
-
-
--- convert user type to Signal representation
--- for example (a, b)
-class ToSignal a where
-    toSignal :: a -> Signal
-    fromSignal :: Signal -> a
-
-instance Num Signal where
-    abs = UnaryOp Abs
-    negate = UnaryOp Neg
-    (*) x y = MultyOp Mul [x, y]
-    (+) x y = MultyOp Sum [x, y]
-    (-) = BinaryOp Sub
-    signum = UnaryOp Signum
-    fromInteger x = Lit (fromInteger x) 32
-
-type RefSt a = [(Int, a)]
--- condition/value pairs, initial(reset) value, optional name
-data Reg = Reg [(Signal, Signal)] Signal (Maybe String)
-data SigMap = SigMap { smSignals :: [(Int, Signal, HWName)]
-                     , smRegs ::RefSt Reg }
-data StgMap = StgMap {smStages :: RefSt PStage}
-
-instance Monoid SigMap where
-    mempty = SigMap [] []
-    mappend (SigMap s1 s2) (SigMap s1' s2') = SigMap (s1 <> s1') (s2 <> s2')
+data StgMap = StgMap { smStages :: [(Int, PStage)] }
 
 instance Monoid StgMap where
     mempty = StgMap []
     mappend (StgMap s) (StgMap s') = StgMap (s <> s')
 
-type HW = RWS () SigMap Int
-type PipeM = RWST PipeCtrl StgMap Int HW
+type PipeM = RWST PipeCtrl StgMap Int (HW ASTHook)
 
 data PipeCtrl = PipeCtrl { pipeCtrlStages :: [(Int, PStage)]}
 
@@ -240,46 +117,19 @@ rPipe f = (a', sigs, sm) where
     m = runRWST f pipectrl 0 -- Pipe
     r@((a', _, sm), _, sigs) = runRWS m () 0 -- HW
 
-rHW m = (a, sigs) where
-    r@(a, _, sigs) = runRWS m () 0
+verilog :: PipeM a -> String
+verilog f = toVerilog m where
+    stgs = smStages sm
+    pipectrl = PipeCtrl stgs
+    m = runRWST f pipectrl 0 -- Pipe
+    r@((a', _, sm), _, sigs) = runRWS m () 0 -- HW
 
--- creates reference
-sig :: Signal -> HW Signal
-sig inputSignal = sig' inputSignal HWNNoName
-
-sign :: String -> Signal -> HW Signal
-sign name inputSignal = sig' inputSignal (HWNLike name)
-
-sigalias :: String -> Signal -> HW Signal
-sigalias name inputSignal = sig' inputSignal (HWNExact name)
-
-sig' :: Signal -> HWName -> HW Signal
-sig' inputSignal name = do
-    n <- get
-    put $ n + 1
-    tell $ mempty {smSignals = [(n, inputSignal, name)]}
-    return $ SigRef n name inputSignal
 
 sigp :: Signal -> PipeM Signal
 sigp s = lift $ sig s
 
-mkReg :: [(Signal, Signal)] -> HW Signal
-mkReg = mkReg' Nothing 0
-mkNReg n = mkReg' (Just n) 0
-mkNRegX n = mkReg' (Just n) Undef
-
 pPort :: Signal -> Signal -> Signal
-pPort en s = IPipePortNB $ IPortNB {portData = s, portEn = en}
-
-mkReg' :: Maybe String -> Signal -> [(Signal, Signal)]  -> HW Signal
-mkReg' name reset_value reginput = do
-    n <- get
-    put $ n + 1
-    let r =  Reg reginput reset_value name
-    tell $ mempty {smRegs = [(n, r)]}
-    return $ RegRef n r
-
- 
+pPort en s = ExtRef (IPipePortNB $ IPortNB {portData = s, portEn = en}) s
 
 data LogicStage = LogicStage { lsCtrl :: PipeStageLogic
                              , lsSignal :: Signal
@@ -298,7 +148,7 @@ stageControl name input vld rdy downstreamStages = mfix $ \me -> do
         deUIPortNBs = map portEn upstreamPorts
         dep' = and' $ deUpStgs ++ deUIPortNBs
         drp = not' vld
-        (Stage mestg) = me
+        ExtRef (Stage mestg) _ = me
         take' = and' [rdy', dep', not' drp, or' [not' $ pslDe $ lsCtrl mestg, takenext']]
         dsLStgs = concat $ map queryUpstreamLStages downstreamStages
         takenext' = and' $ map (pslTake . lsCtrl) $ dsLStgs
@@ -322,7 +172,7 @@ stageControl name input vld rdy downstreamStages = mfix $ \me -> do
             , pslDrop = drp
             , pslDropNext = dropnext'
             , pslClr = clr }
-    return $ Stage $ LogicStage ctrl input reg
+    return $ ExtRef (Stage $ LogicStage ctrl input reg) reg
 
 stage :: Signal -> PipeM Signal
 stage = stage' Nothing (Lit 1 1) 0
@@ -360,7 +210,7 @@ stage' mname rdySignal bufferdepth inputSignal' = do
             filter (\x -> (snd x) == d) (zip downstreamStages dsDistances) 
 
         ds = mapSignal mapR inputSignal
-        mapR (PipelineStage p) = ls !! dist where
+        mapR (ExtRef (PipelineStage p) _) = ls !! dist where
             ls = pipeStageLogicStages p
             dist = downstreamDist (pipeStageId p) inputSignal'
         mapR x = x
@@ -397,7 +247,7 @@ stage' mname rdySignal bufferdepth inputSignal' = do
                         , pipeStageBufferDepth = bufferdepth
                         , pipeStageLogicStages = r:ls }
     tell $ mempty {smStages = [(np, stg)]}
-    return self
+    return $ ExtRef self $ r
 
 representationWidth :: Int -> Int
 representationWidth i = (finiteBitSize i) - (countLeadingZeros i)

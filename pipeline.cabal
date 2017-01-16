@@ -14,6 +14,7 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Hardware.PipelineDSL,
                        Hardware.PipelineDSL.Verilog,
+                       Hardware.PipelineDSL.HW
                        Hardware.PipelineDSL.Pipeline
   -- other-modules:       
   -- other-extensions:    
@@ -26,4 +27,3 @@ executable example1
   main-is:             example1.hs
   hs-source-dirs:      examples,src
   build-depends:       base >=4.8, mtl
-  ghc-options:         -prof -fprof-auto

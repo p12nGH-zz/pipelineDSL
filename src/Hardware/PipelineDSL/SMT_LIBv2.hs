@@ -7,6 +7,7 @@ import Data.List (intercalate)
 import Text.Printf (printf)
 
 import Hardware.PipelineDSL.Pipeline
+import Hardware.PipelineDSL.HW
 
 mOpsSign Or = "bvor "
 mOpsSign And = "bvand "
@@ -20,7 +21,7 @@ bOpsSign (Cmp NotEqual) = "n/s"
 uOpsSign Not = "bvnot"
 uOpsSign Neg = "n/s"
 
-code :: Signal -> String
+code :: Signal a -> String
 code = code' . simplify . simplify . simplify . simplify  where
     code' (SigRef n HWNNoName _) = "sig_" ++ (show n)
     code' (SigRef _ (HWNExact n) _) = n
@@ -35,7 +36,6 @@ code = code' . simplify . simplify . simplify . simplify  where
     code' (Alias n _) = n
     code' Undef = "'x"
     code' (RegRef n _) = "reg_" ++ (show n)
-    code' (PipelineStage p) = "ps_" ++ (show $ pipeStageId p)
 
 toSMT_LIBv2 m = signals ++ stages where
     (_, h, s) = rPipe m

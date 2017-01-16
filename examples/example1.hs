@@ -7,12 +7,14 @@ import Data.Ix (range)
 
 import Hardware.PipelineDSL
 
-en = Alias "en" 1
+
 
 t2 :: PipeM ()
 t2 = do
     m <- sigp $ Alias "data1" 32
     u <- sigp 899
+    let
+        en = Alias "en" 1
     d <- stagen "d0" $ pPort (Alias "data1en" 1) (Alias "data1" 32)
     d1 <- stagen "d1" $ d + 7 + d -- 1
     d2 <- stagen "d2" $ d1 + 19 -- 2
@@ -27,4 +29,4 @@ t2 = do
 
 main = do
     -- putStr $ toSMT_LIBv2 t2
-    putStr $ toVerilog t2
+    putStr $ verilog t2

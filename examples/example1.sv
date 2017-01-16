@@ -34,7 +34,10 @@ initial begin
     skip;
     w16(13);
     skip;
-    repeat (10) @(posedge clk);
+    repeat (20) @(posedge clk);
+    #12;
+    en = 1;
+    repeat (20) @(posedge clk);
     $finish;
 end
 `include "gen.sv"

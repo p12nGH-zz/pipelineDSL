@@ -1,13 +1,12 @@
 -- | Verilog code generation
 module Hardware.PipelineDSL.Verilog (
     toVerilog,
-    toVerilogHW
 ) where
 
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
 
-import Hardware.PipelineDSL.Pipeline
+import Hardware.PipelineDSL.HW
 
 mOpsSign Or = " | "
 mOpsSign And = " & "
@@ -25,7 +24,7 @@ bOpsSign (Cmp Greater) = " > "
 uOpsSign Not = "~"
 uOpsSign Neg = "-"
 
-vcode :: Signal -> String
+vcode :: Signal a -> String
 vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (SigRef n HWNNoName _) = "sig_" ++ (show n)
     vcode' (SigRef _ (HWNExact n) _) = n
@@ -41,11 +40,9 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (Lit val width) = (show width) ++ "'d" ++ (show val)
     vcode' (Alias n _) = n
     vcode' Undef = "'x"
+    vcode' (ExtRef _ n) = vcode' n
     vcode' (RegRef n (Reg _ _ Nothing)) = "reg_" ++ (show n)
     vcode' (RegRef n (Reg _ _ (Just name))) = name ++ (show n)
-    vcode' (Stage (LogicStage _ _ r)) = vcode' r
-    vcode' (PipelineStage p) = vcode' $ head $ pipeStageLogicStages p
-    vcode' (IPipePortNB p) = vcode' $ portData p
 
 print_width 1 = ""
 print_width n = "[" ++ (show $ n - 1) ++ ":0] "
@@ -63,9 +60,6 @@ printSigs s = unlines (map printStg stgs) where
     stgs = smSignals s
 
 toVerilog m = toVerilog' s where
-    (_, s, _) = rPipe m
-
-toVerilogHW m = toVerilog' s where
     (_, s) = rHW m
 
 toVerilog' s = (printSigs s) ++ (unlines $ map printStg stgs)  where
