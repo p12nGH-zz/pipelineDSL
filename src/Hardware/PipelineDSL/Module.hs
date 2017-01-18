@@ -9,13 +9,13 @@ import Hardware.PipelineDSL.Verilog
 import Control.Monad.Writer.Lazy
 import Data.List (intercalate)
 
-data Port = InputPort String | OutputPort String
+data Port = InputPort String Int | OutputPort String
 type SignalM = Signal ()
 type ModuleM = WriterT [Port] (HW ())
 
 input :: String -> Int -> ModuleM SignalM
 input n w = do
-    tell $ [InputPort n]
+    tell $ [InputPort n w]
     return (Alias n w)
 
 output :: String -> SignalM -> ModuleM ()
@@ -26,7 +26,7 @@ output n s = do
 
 verilogM :: String -> ModuleM a -> String
 verilogM name m = interface ++ code ++ "endmodule" where
-    pp (InputPort s) = "input " ++ s
+    pp (InputPort s w) = "input logic [" ++ (show $ w - 1) ++ ":0] " ++ s
     pp (OutputPort s) = "output " ++ s
     hw = runWriterT m
     ((_, ports), _) = rHW $ hw
