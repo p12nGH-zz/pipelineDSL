@@ -48,15 +48,15 @@ print_width 1 = ""
 print_width n = "[" ++ (show $ n - 1) ++ ":0] "
 
 printSigs s = unlines (map printStg stgs) where
-    printStg (i, x, name) = intercalate "\n" [decl] where
+    printStg (Comb i x name declare) = intercalate "\n" [decl] where
         width = getSignalWidth (Just i) x
         sig = case name of
             HWNNoName -> "sig_" ++ (show i)
             HWNLike n -> n ++ "_" ++ (show i)
             HWNExact n -> n
-        decl' = "\n\nlogic " ++ (print_width width) ++ sig ++ ";\n" 
+        decl' = "\n\nlogic " ++ (print_width width) ++ sig ++ ";\n"
         assign = "assign " ++ sig ++ " = " ++ vcode x ++ ";"
-        decl = decl' ++ assign
+        decl = (if declare then decl' else "\n") ++ assign
     stgs = smSignals s
 
 toVerilog m = toVerilog' s where

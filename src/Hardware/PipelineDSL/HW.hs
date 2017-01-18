@@ -2,6 +2,7 @@ module Hardware.PipelineDSL.HW (
     sig,
     sign,
     sigalias,
+    sigalias',
     HW (..),
     Signal (..),
     SigMap (..),
@@ -11,6 +12,7 @@ module Hardware.PipelineDSL.HW (
     CmpOp (..),
     Reg (..),
     HWName (..),
+    Comb (..),
     simplify,
     getSignalWidth,
     rHW,
@@ -145,10 +147,15 @@ instance Num (Signal a) where
     signum = UnaryOp Signum
     fromInteger x = Lit (fromInteger x) 32
 
+data Comb a = Comb { ciid :: Int
+                                   , cisignal :: Signal a
+                                   , ciname :: HWName
+                                   , cideclare :: Bool } -- do we need to declare this signal
+
 -- condition/value pairs, initial(reset) value, optional name
 data Reg a = Reg [(Signal a, Signal a)] (Signal a) (Maybe String)
-data SigMap a = SigMap { smSignals :: [(Int, Signal a, HWName)]
-                     , smRegs :: [(Int, Reg a)] }
+data SigMap a = SigMap { smSignals :: [Comb a]
+                       , smRegs :: [(Int, Reg a)] }
 
 instance Monoid (SigMap a) where
     mempty = SigMap [] []
@@ -161,26 +168,28 @@ rHW m = (a, sigs) where
 
 -- creates reference
 sig :: Signal a -> HW a (Signal a)
-sig inputSignal = sig' inputSignal HWNNoName
+sig inputSignal = sig' inputSignal HWNNoName True
 
 sign :: String -> Signal a -> HW a (Signal a)
-sign name inputSignal = sig' inputSignal (HWNLike name)
+sign name inputSignal = sig' inputSignal (HWNLike name) True
 
 sigalias :: String -> Signal a -> HW a (Signal a)
-sigalias name inputSignal = sig' inputSignal (HWNExact name)
+sigalias name inputSignal = sig' inputSignal (HWNExact name) True
 
-sig' :: Signal a -> HWName -> HW a (Signal a)
-sig' inputSignal name = do
+sigalias' :: String -> Signal a -> HW a (Signal a)
+sigalias' name inputSignal = sig' inputSignal (HWNExact name) False
+
+sig' :: Signal a -> HWName -> Bool -> HW a (Signal a)
+sig' inputSignal name decl = do
     n <- get
     put $ n + 1
-    tell $ mempty {smSignals = [(n, inputSignal, name)]}
+    tell $ mempty {smSignals = [Comb n inputSignal name decl]}
     return $ SigRef n name inputSignal
 
 mkRef :: Signal a -> HW a (Signal a, Int)
 mkRef s = do
     r@(SigRef i _ _) <- sig s
     return (r, i)
-
 
 mkReg :: [(Signal a, Signal a)] -> HW a (Signal a)
 mkReg = mkReg' Nothing 0

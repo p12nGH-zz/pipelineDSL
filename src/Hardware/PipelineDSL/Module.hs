@@ -21,7 +21,7 @@ input n w = do
 output :: String -> SignalM -> ModuleM ()
 output n s = do
     tell $ [OutputPort n]
-    lift $ sigalias n s
+    lift $ sigalias' n s
     return ()
 
 verilogM :: String -> ModuleM a -> String

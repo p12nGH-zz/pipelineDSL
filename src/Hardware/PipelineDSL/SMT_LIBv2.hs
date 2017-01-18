@@ -40,7 +40,7 @@ code = code' . simplify . simplify . simplify . simplify  where
 toSMT_LIBv2 m = signals ++ stages where
     (_, h, s) = rPipe m
     signals = unlines (map printSig $ smSignals h)
-    printSig (i, x, name) = assert where
+    printSig (Comb i x name declare) = assert where
         width = getSignalWidth (Just i) x
         sig = case name of
             HWNNoName -> "sig_" ++ (show i)
