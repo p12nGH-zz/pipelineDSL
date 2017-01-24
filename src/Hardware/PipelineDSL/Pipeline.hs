@@ -8,6 +8,7 @@ module Hardware.PipelineDSL.Pipeline (
     StgMap (..),
     Reg (..),
     LogicStage (..),
+    ASTHook (..),
     getSignalWidth,
     rPipe,
     rHW,
@@ -44,7 +45,10 @@ data PStage = PStage { pipeStageId :: Int
 data IPortNB = IPortNB { portEn :: Signal
                        , portData :: Signal }
 
-data ASTHook = Stage LogicStage | PipelineStage PStage | IPipePortNB IPortNB
+data ASTHook = Stage LogicStage
+             | PipelineStage PStage
+             | IPipePortNB IPortNB
+             | Cond Signal Signal -- conditional signal valid, value
 type Signal = HW.Signal ASTHook
 -- list all pipeline stages that are inputs for a given signal
 
@@ -184,9 +188,13 @@ stage' mname rdySignal bufferdepth inputSignal' = do
 
     let
         -- take care of conditional signal
+        inputSignal = inputSignal'
+        vld = Lit 1 1
+        {-
         (vld, inputSignal) = case inputSignal' of
             (Cond v s) -> (v, s)
             _ -> (Lit 1 1, inputSignal')
+        -}
 
         stgs = pipeCtrlStages pipectrl
 

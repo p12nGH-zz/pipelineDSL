@@ -21,7 +21,7 @@ bOpsSign (Cmp NotEqual) = "n/s"
 uOpsSign Not = "bvnot"
 uOpsSign Neg = "n/s"
 
-code :: Signal a -> String
+code :: Signal ASTHook -> String
 code = code' . simplify . simplify . simplify . simplify  where
     code' (SigRef n HWNNoName _) = "sig_" ++ (show n)
     code' (SigRef _ (HWNExact n) _) = n
@@ -36,8 +36,11 @@ code = code' . simplify . simplify . simplify . simplify  where
     code' (Alias n _) = n
     code' Undef = "'x"
     code' (RegRef n _) = "reg_" ++ (show n)
+    code' (ExtRef (PipelineStage p) _) = "ps_" ++ (show $ pipeStageId p)
+    code' (ExtRef (IPipePortNB p) _) = code $ portData p
 
-toSMT_LIBv2 m = signals ++ stages where
+--toSMT_LIBv2 m = signals ++ stages where
+toSMT_LIBv2 m = stages where
     (_, h, s) = rPipe m
     signals = unlines (map printSig $ smSignals h)
     printSig (Comb i x name declare) = assert where

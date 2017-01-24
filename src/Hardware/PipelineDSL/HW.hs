@@ -49,7 +49,6 @@ data Signal a = Alias String Int -- name, width
             | UnaryOp UOps (Signal a)
             | MultyOp MOps [(Signal a)]
             | BinaryOp BOps (Signal a) (Signal a)
-            | Cond (Signal a) (Signal a) -- conditional signal valid, value
             | Undef
             | RegRef Int (Reg a) -- register, inserts 1 clock delay
 
@@ -63,7 +62,6 @@ getSignalWidth r (MultyOp _ s) = maximum $ map (getSignalWidth r) s
 getSignalWidth r (BinaryOp (Cmp _) _ _) = 1
 getSignalWidth r (BinaryOp _ s1 s2) = max (getSignalWidth r s1) (getSignalWidth r s2)
 getSignalWidth r (UnaryOp _ s) = getSignalWidth r s
-getSignalWidth r (Cond _ s) = getSignalWidth r s
 getSignalWidth r (Lit _ s) = s
 getSignalWidth r (Alias _ s) = s
 getSignalWidth Nothing (RegRef _ (Reg s _ _)) = maximum $ map ((getSignalWidth Nothing) . snd) s
@@ -79,7 +77,6 @@ mapSignal f s =  mapSignal' (f s) where
     mapSignal' (BinaryOp op s1 s2) = BinaryOp op (mapSignal f s1) (mapSignal f s2)
     mapSignal' (UnaryOp op s) = UnaryOp op (mapSignal f s)
     mapSignal' (SigRef n name s) = SigRef n name (mapSignal f s)
-    mapSignal' (Cond n s) = Cond (mapSignal f n) (mapSignal f s)
     mapSignal' x = x
 
 rewrite :: (Signal a -> Signal a) -> Signal a -> Signal a
@@ -89,7 +86,6 @@ rewrite f s =  f $ rewrite' (f s) where
     rewrite' (BinaryOp op s1 s2) = f $ BinaryOp op (rewrite f s1) (rewrite f s2)
     rewrite' (UnaryOp op s) = f $ UnaryOp op (rewrite f s)
     rewrite' (SigRef n name s) = f $ SigRef n name (rewrite f s)
-    rewrite' (Cond n s) = f $ Cond (rewrite f n) (rewrite f s)
     rewrite' x = x
 
 queryRefs :: Signal a -> [a]
@@ -207,13 +203,3 @@ mkReg' name reset_value reginput = do
 representationWidth :: Int -> Int
 representationWidth i = (finiteBitSize i) - (countLeadingZeros i)
 
--- iterate over [x] in Monad context
--- passes results of each iteration to the next one
--- returns results of all actions in a list
-foldMapM _ [] _ = pure []
-foldMapM f [x] p = do
-    t <- f x p
-    return [t]
-foldMapM f (x:xn) p = do
-    t <- f x p
-    ((:) t) <$> foldMapM f xn t
