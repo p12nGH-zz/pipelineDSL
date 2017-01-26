@@ -7,7 +7,9 @@ import Data.Ix (range)
 
 import Hardware.PipelineDSL
 
-
+eq = BinaryOp (Cmp Equal)
+not' = UnaryOp Not
+neq s r = not' $ eq s r
 
 t2 :: PipeM ()
 t2 = do
@@ -18,7 +20,7 @@ t2 = do
     d <- stagen "d0" $ pPort (Alias "data1en" 1) (Alias "data1" 32)
     d1 <- stagen "d1" $ d + 7 + d -- 1
     d2 <- stagen "d2" $ d1 + 19 -- 2
-    d3 <- stagen "d3" $ d - 13 + d2 -- 3
+    d3 <- stageConditional "d3" (neq d 13) $ d - 13 + d2 -- 3
     d4 <- stagen "d4" d3
     d5 <- stageEnN "d5" en d4
 

@@ -16,6 +16,7 @@ module Hardware.PipelineDSL.Pipeline (
     IPortNB (..),
     stageEn,
     stageEnN,
+    stageConditional,
     verilog
 ) where
 
@@ -33,6 +34,7 @@ import Hardware.PipelineDSL.Verilog
 
 data PStage = PStage { pipeStageId :: Int
                      , pipeStageSignal :: Signal
+                     , pipeStagePass :: Signal
                      , pipeStageStageNum :: Int
                      , pipeStageUpstreamStages :: [PStage]
                      , pipeStageDownstreamStages :: [PStage]
@@ -169,37 +171,32 @@ stageControl name input vld rdy downstreamStages = mfix $ \me -> do
     return $ ExtRef (Stage $ LogicStage ctrl input reg) reg
 
 stage :: Signal -> PipeM Signal
-stage = stage' Nothing (Lit 1 1) 0
+stage = stage' Nothing (Lit 1 1) 0 (Lit 1 1)
 
 stagen :: String -> Signal -> PipeM Signal
-stagen name s = stage' (Just name) (Lit 1 1) 0 s
+stagen name s = stage' (Just name) (Lit 1 1) 0 (Lit 1 1) s
 
 stageEn :: Signal -> Signal -> PipeM Signal
-stageEn en s = stage' Nothing en 0 s
+stageEn en s = stage' Nothing en 0 (Lit 1 1) s
 
 stageEnN :: String -> Signal -> Signal -> PipeM Signal
-stageEnN name en s = stage' (Just name) en 0 s
+stageEnN name en s = stage' (Just name) en 0 (Lit 1 1) s
 
-stage' :: (Maybe String) -> Signal -> Int -> Signal -> PipeM Signal
-stage' mname rdySignal bufferdepth inputSignal' = do
+stageConditional :: String -> Signal -> Signal -> PipeM Signal
+stageConditional name cnd s = stage' (Just name) (Lit 1 1) 0 cnd s
+
+stage' :: (Maybe String) -> Signal -> Int -> Signal -> Signal -> PipeM Signal
+stage' mname rdySignal bufferdepth vld inputSignal = do
     np <- get
     pipectrl <- ask
     put $ np + 1
 
     let
-        -- take care of conditional signal
-        inputSignal = inputSignal'
-        vld = Lit 1 1
-        {-
-        (vld, inputSignal) = case inputSignal' of
-            (Cond v s) -> (v, s)
-            _ -> (Lit 1 1, inputSignal')
-        -}
-
         stgs = pipeCtrlStages pipectrl
-
+        -- calculate distances to stages that depend on current stage
         dsDistances = map (downstreamDist np) (map pipeStageSignal downstreamStages)
-        ndelays = case dsDistances of
+        passDistances = map (downstreamDist np) (map pipeStagePass downstreamStages)
+        ndelays = case dsDistances ++ passDistances of
             [] -> 0
             s -> maximum s
 
@@ -208,9 +205,10 @@ stage' mname rdySignal bufferdepth inputSignal' = do
             filter (\x -> (snd x) == d) (zip downstreamStages dsDistances) 
 
         ds = mapSignal mapR inputSignal
+        vld' = mapSignal mapR vld
         mapR (ExtRef (PipelineStage p) _) = ls !! dist where
             ls = pipeStageLogicStages p
-            dist = downstreamDist (pipeStageId p) inputSignal'
+            dist = downstreamDist (pipeStageId p) inputSignal
         mapR x = x
 
         upstreamStages = queryUpstreamStages inputSignal
@@ -229,13 +227,14 @@ stage' mname rdySignal bufferdepth inputSignal' = do
 
     let
         f ds s = stageControl' s (Lit 1 1) (Lit 1 1) ds
-    r <- lift $ stageControl' ds vld rdySignal (pickDsByDistance 0)
+    r <- lift $ stageControl' ds vld' rdySignal (pickDsByDistance 0)
     ls <- lift $ foldMapM f (map pickDsByDistance [1..ndelays]) r
 
     let
         self = PipelineStage stg
         stg = PStage    { pipeStageId = np
                         , pipeStageSignal = inputSignal
+                        , pipeStagePass = vld
                         , pipeStageStageNum = stageid
                         , pipeStageUpstreamStages = upstreamStages
                         , pipeStageDownstreamStages = downstreamStages
@@ -246,9 +245,6 @@ stage' mname rdySignal bufferdepth inputSignal' = do
                         , pipeStageLogicStages = r:ls }
     tell $ mempty {smStages = [(np, stg)]}
     return $ ExtRef self $ r
-
-representationWidth :: Int -> Int
-representationWidth i = (finiteBitSize i) - (countLeadingZeros i)
 
 -- iterate over [x] in Monad context
 -- passes results of each iteration to the next one
