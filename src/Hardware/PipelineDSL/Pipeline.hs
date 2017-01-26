@@ -25,7 +25,6 @@ import Control.Applicative
 import Data.Monoid ( (<>) )
 import Control.Monad.Fix
 import Data.Ix (range)
-import Data.Bits (finiteBitSize, countLeadingZeros)
 import Control.Monad.RWS.Lazy hiding (Sum)
 import Data.Maybe (fromMaybe, catMaybes)
 import Hardware.PipelineDSL.HW hiding (Signal)

@@ -28,7 +28,6 @@ import Control.Applicative
 import Data.Monoid ( (<>) )
 import Control.Monad.Fix
 import Data.Ix (range)
-import Data.Bits (finiteBitSize, countLeadingZeros)
 import Control.Monad.RWS.Lazy hiding (Sum)
 import Data.Maybe (fromMaybe)
 
@@ -199,7 +198,3 @@ mkReg' name reset_value reginput = do
     let r =  Reg reginput reset_value name
     tell $ mempty {smRegs = [(n, r)]}
     return $ RegRef n r
-
-representationWidth :: Int -> Int
-representationWidth i = (finiteBitSize i) - (countLeadingZeros i)
-
