@@ -52,9 +52,13 @@ toSMT_LIBv2 m = stages where
         decl = "(declare-const " ++ sig ++ " (_ BitVec " ++ (show width) ++ "))\n"
         assert = decl ++ "(assert (= " ++ sig ++ " " ++ (code x) ++ "))"
     stages = unlines (map printStg $ smStages s)
-    printStg (i, pstg) = assert where
-        s = pipeStageSignal pstg
-        width = getSignalWidth (Just i) s
-        reg = "ps_" ++ (show i)
-        decl = "(declare-const " ++ reg ++ " (_ BitVec " ++ (show width) ++ "))\n"
-        assert = decl ++ "(assert (= " ++ reg ++ " " ++ (code s) ++ "))"
+    printStg (i, pstg) = smt where
+        sname = "ps_" ++ (show i)
+        cname = "cond_" ++ (show i)
+        smt = (printSMT sname $ pipeStageSignal pstg) ++ "\n" ++ (printSMT cname $ pipeStagePass pstg)
+
+        printSMT n s = assert where
+            width = getSignalWidth (Just i) s
+            reg = n
+            decl = "(declare-const " ++ reg ++ " (_ BitVec " ++ (show width) ++ "))\n"
+            assert = decl ++ "(assert (= " ++ reg ++ " " ++ (code s) ++ "))"
