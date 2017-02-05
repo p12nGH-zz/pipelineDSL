@@ -51,7 +51,7 @@ fsm f = fst <$> q where
 
         (a, _, w) <- (runRWST f) states initialState
         
-        return (a, [])
+        return (a, w)
 
 -- record current state in Writer
 -- create empty one in State
@@ -61,9 +61,10 @@ wait s = do
     states <- ask
 
     let
-        hasNPrev n s = any ((==) n) $ map fsmStId $ fsmStPrevious s
-        nextTo n = filter (hasNPrev n) states
-        meclr = or' $ map fsmStActivate $ nextTo (1 + (fsmStId current_state))
+        nextId = 1 + (fsmStId current_state)
+        hasNPrev s = elem nextId $ map fsmStId $ fsmStPrevious s
+        nextToMe = filter hasNPrev states
+        meclr = or' $ map fsmStActivate $ nextToMe
         meset = and' [s, fsmStActive current_state]
     reg <- lift $ mkRegI [(meset, Lit 1 1), (meclr, Lit 0 1)] $ Lit 0 1
 
@@ -72,6 +73,7 @@ wait s = do
             , fsmStActivate = meset
             , fsmStActive = reg
             , fsmStPrevious = [current_state]
-            , fsmStNext = nextTo 0 }
+            , fsmStNext = nextToMe }
     put next
+    tell [next]
     return next
