@@ -26,7 +26,7 @@ module Hardware.PipelineDSL.HW (
 
 import Control.Monad
 import Control.Applicative
-import Data.Monoid ( (<>) )
+import Data.Monoid
 import Control.Monad.Fix
 import Data.Ix (range)
 import Control.Monad.Trans.RWS.Lazy hiding (Sum)
