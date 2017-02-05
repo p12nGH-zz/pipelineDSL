@@ -19,6 +19,7 @@ module Hardware.PipelineDSL.HW (
     mkReg,
     mkNReg,
     mkNRegX,
+    mkRegI,
     queryRefs,
     mapSignal
 ) where
@@ -28,7 +29,7 @@ import Control.Applicative
 import Data.Monoid ( (<>) )
 import Control.Monad.Fix
 import Data.Ix (range)
-import Control.Monad.RWS.Lazy hiding (Sum)
+import Control.Monad.Trans.RWS.Lazy hiding (Sum)
 import Data.Maybe (fromMaybe)
 
 data CmpOp = Equal | NotEqual | LessOrEqual | GreaterOrEqual | Less | Greater
@@ -190,6 +191,8 @@ mkReg :: [(Signal a, Signal a)] -> HW a (Signal a)
 mkReg = mkReg' Nothing 0
 mkNReg n = mkReg' (Just n) 0
 mkNRegX n = mkReg' (Just n) Undef
+
+mkRegI p i = mkReg' Nothing i p
 
 mkReg' :: Maybe String -> Signal a -> [(Signal a, Signal a)]  -> HW a (Signal a)
 mkReg' name reset_value reginput = do

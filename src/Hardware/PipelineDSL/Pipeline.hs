@@ -25,10 +25,11 @@ import Control.Applicative
 import Data.Monoid ( (<>) )
 import Control.Monad.Fix
 import Data.Ix (range)
-import Control.Monad.RWS.Lazy hiding (Sum)
+import Control.Monad.Trans.RWS.Lazy hiding (Sum)
 import Data.Maybe (fromMaybe, catMaybes)
 import Hardware.PipelineDSL.HW hiding (Signal)
 import qualified Hardware.PipelineDSL.HW as HW
+import Control.Monad.Trans.Class (lift)
 import Hardware.PipelineDSL.Verilog
 
 data PStage = PStage { pipeStageId :: Int

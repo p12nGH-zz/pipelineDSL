@@ -6,7 +6,8 @@ module Hardware.PipelineDSL.Module (
 
 import Hardware.PipelineDSL.HW
 import Hardware.PipelineDSL.Verilog 
-import Control.Monad.Writer.Lazy
+import Control.Monad.Trans.Writer.Lazy
+import Control.Monad.Trans.Class (lift)
 import Data.List (intercalate)
 
 data Port = InputPort String Int | OutputPort String
