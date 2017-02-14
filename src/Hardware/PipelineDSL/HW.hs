@@ -22,7 +22,8 @@ module Hardware.PipelineDSL.HW (
     mkNRegX,
     mkRegI,
     queryRefs,
-    mapSignal
+    mapSignal,
+    addC
 ) where
 
 import Control.Monad

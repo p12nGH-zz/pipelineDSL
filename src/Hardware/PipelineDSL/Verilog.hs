@@ -69,7 +69,7 @@ toVerilog' s = (printSigs s) ++ (unlines $ map printStg stgs)  where
         u (RegC _ c) = c -- unpack
     
     printStg (i, x@(Reg c reset_value mname)) = intercalate "\n" [decl] where
-        width = maximum $ map ((getSignalWidth (Just i)). snd) c
+        width = maximum $ map ((getSignalWidth (Just i)). snd) (c ++ (addnl_conditions i))
 
         name = fromMaybe "reg_" mname
         reg = name ++ (show i)

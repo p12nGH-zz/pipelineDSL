@@ -1,6 +1,7 @@
 module Hardware.PipelineDSL.FSM (
     fsm,
-    wait
+    wait,
+    (.=)
 ) where
 
 import Control.Monad
@@ -65,7 +66,8 @@ wait s = do
         hasNPrev s = elem nextId $ map fsmStId $ fsmStPrevious s
         nextToMe = filter hasNPrev states
         meclr = or' $ map fsmStActivate $ nextToMe
-        meset = and' [s, fsmStActive current_state]
+
+    meset <- lift $ sig $ and' [s, fsmStActive current_state]
     reg <- lift $ mkRegI [(meset, Lit 1 1), (meclr, Lit 0 1)] $ Lit 0 1
 
     let next = FSMState
@@ -77,3 +79,8 @@ wait s = do
     put next
     tell [next]
     return next
+
+(.=) r v = do
+    current_state <- get
+    lift $ addC r [(fsmStActivate current_state, v)]
+    return ()
