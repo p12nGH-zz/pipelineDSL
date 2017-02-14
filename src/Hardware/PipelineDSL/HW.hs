@@ -11,6 +11,7 @@ module Hardware.PipelineDSL.HW (
     UOps (..),
     CmpOp (..),
     Reg (..),
+    RegC (..),
     HWName (..),
     Comb (..),
     simplify,
@@ -150,12 +151,18 @@ data Comb a = Comb { ciid :: Int
 
 -- condition/value pairs, initial(reset) value, optional name
 data Reg a = Reg [(Signal a, Signal a)] (Signal a) (Maybe String)
+
+-- add additional conditions to existing reg
+data RegC a = RegC Int [(Signal a, Signal a)]
+
+-- HW accumulator type
 data SigMap a = SigMap { smSignals :: [Comb a]
-                       , smRegs :: [(Int, Reg a)] }
+                       , smRegs :: [(Int, Reg a)]
+                       , smRegCs :: [RegC a] }
 
 instance Monoid (SigMap a) where
-    mempty = SigMap [] []
-    mappend (SigMap s1 s2) (SigMap s1' s2') = SigMap (s1 <> s1') (s2 <> s2')
+    mempty = SigMap [] [] []
+    mappend (SigMap s1 s2 s3) (SigMap s1' s2' s3') = SigMap (s1 <> s1') (s2 <> s2') (s3 <> s3')
 
 type HW a = RWS () (SigMap a) Int
 
@@ -201,3 +208,9 @@ mkReg' name reset_value reginput = do
     let r =  Reg reginput reset_value name
     tell $ mempty {smRegs = [(n, r)]}
     return $ RegRef n r
+
+-- add additional condition/value pairs to existing reg
+-- used mostly in FSM logic
+-- very unsafe pattern matching
+addC :: Signal a -> [(Signal a, Signal a)] -> HW a ()
+addC (RegRef i _) c = tell $ mempty {smRegCs = [RegC i c]}

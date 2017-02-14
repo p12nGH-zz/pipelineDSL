@@ -63,6 +63,11 @@ toVerilog m = toVerilog' s where
     (_, s) = rHW m
 
 toVerilog' s = (printSigs s) ++ (unlines $ map printStg stgs)  where
+    stgs = smRegs s
+    addnl_conditions n = concat $ map u $ filter (f n) $ smRegCs s where
+        f n (RegC m _) = m == n -- filter 
+        u (RegC _ c) = c -- unpack
+    
     printStg (i, x@(Reg c reset_value mname)) = intercalate "\n" [decl] where
         width = maximum $ map ((getSignalWidth (Just i)). snd) c
 
@@ -71,7 +76,7 @@ toVerilog' s = (printSigs s) ++ (unlines $ map printStg stgs)  where
         cond (e, v) =
             "if (" ++ (vcode e) ++ ")\n" ++
             "            " ++ reg ++ " <= " ++ (vcode v) ++ ";"
-        condassigns = intercalate "\n        else " $ map cond c
+        condassigns = intercalate "\n        else " $ map cond (c ++ (addnl_conditions i))
 
         decl = "\nlogic " ++ (print_width width) ++ reg ++ ";\n" ++
             "always @(posedge clk or negedge rst_n) begin\n" ++
@@ -79,4 +84,3 @@ toVerilog' s = (printSigs s) ++ (unlines $ map printStg stgs)  where
             "        " ++ reg ++ " <= " ++ (vcode reset_value) ++ ";\n" ++
             "    end else begin\n        " ++ condassigns ++
             "\n    end" ++  "\nend"
-    stgs = smRegs s
