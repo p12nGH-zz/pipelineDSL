@@ -26,6 +26,7 @@ import Data.Monoid ( (<>) )
 import Control.Monad.Fix
 import Data.Ix (range)
 import Control.Monad.Trans.RWS.Lazy hiding (Sum)
+import Data.Monoid hiding (Sum)
 import Data.Maybe (fromMaybe, catMaybes)
 import Hardware.PipelineDSL.HW hiding (Signal)
 import qualified Hardware.PipelineDSL.HW as HW
