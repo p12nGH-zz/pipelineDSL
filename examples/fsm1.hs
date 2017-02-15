@@ -7,6 +7,7 @@ main = putStrLn $ toVerilog $ do
     r <- mkReg []
     fsm $ do
         wait $ s1 .== 1
+        r .= 7
         wait $ s1 .== 2
-        r .= 42
+        r .= r + 1
         wait $ s1 .== 3

@@ -80,6 +80,7 @@ wait s = do
     tell [next]
     return next
 
+infixl 2 .=
 (.=) r v = do
     current_state <- get
     lift $ addC r [(fsmStActivate current_state, v)]
