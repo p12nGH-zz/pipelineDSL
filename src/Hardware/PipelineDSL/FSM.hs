@@ -1,7 +1,8 @@
 module Hardware.PipelineDSL.FSM (
     fsm,
     wait,
-    (.=)
+    (.=),
+    goto
 ) where
 
 import Control.Monad
@@ -30,6 +31,7 @@ type FSMM a = RWST [(Int, Signal a)] [(Int, Signal a)] Int (HW a)
 
 or' = MultyOp Or
 and' = MultyOp And
+not' = UnaryOp Not
 
 contextEnableSignal :: Int -> FSMM a (Signal a)
 contextEnableSignal i = do
@@ -69,3 +71,26 @@ infixl 2 .=
     current_enable <- contextEnableSignal current_context
     lift $ addC r [(current_enable, v)]
     return ()
+
+-- conditional goto
+-- branch taken - 1 clock cycle delay
+-- not taken - no delay
+goto :: Int -> Signal a -> FSMM a Int
+goto s c = do
+    current_context <- get
+    contexts <- ask
+
+    current_enable <- contextEnableSignal current_context
+
+    dst_enable <- mfix $ \r -> do
+        lift $ mkRegI [(and' [current_enable, c], Lit 1 1), (r, Lit 0 1)] $ Lit 0 1
+    let
+        next_enable = and' [current_enable, not' c]
+        next = current_context + 1
+
+    put next
+
+    tell [(next, next_enable)]
+    tell [(s, dst_enable)]
+
+    return next
