@@ -27,27 +27,47 @@ data FSMState a = FSMState
 type Signal a = HW.Signal a
 
 -- the FSM monad
-type FSMM a = RWST [(Int, Signal a)] [(Int, Signal a)] Int (HW a)
+type FSMM a = RWST [(FSMContext, Signal a)] [(FSMContext, Signal a)] FSMContext (HW a)
+
+newtype FSMContext = FSMContext Int deriving (Eq)
+newFSMContext :: FSMContext -> FSMContext
+newFSMContext (FSMContext n) = FSMContext $ n + 1
+
+newtype FSMTask = FSMTask Int
+newFSMTask :: FSMTask -> FSMTask
+newFSMTask (FSMTask n) = FSMTask $ n + 1
+
+data FSM a = FSM {
+    callSites :: [(FSMContext, FSMTask)] ,
+    transitions :: [(FSMContext, Signal a)]
+}
+
+instance Monoid (FSM a) where
+    mempty = FSM [] []
+    mappend (FSM c1 t1) (FSM c2 t2) = FSM (c1 <> c2) (t1 <> t2)
 
 or' = MultyOp Or
 and' = MultyOp And
 not' = UnaryOp Not
 
-contextEnableSignal :: Int -> FSMM a (Signal a)
+contextEnableSignal :: FSMContext -> FSMM a (Signal a)
 contextEnableSignal i = do
     enables <- ask
     return $ or' $ map snd $ filter (\(x, _) -> x == i) enables
+
+currentEnable :: FSMM a (Signal a)
+currentEnable = get >>= contextEnableSignal
 
 fsm :: FSMM a b -> HW a b
 fsm f = fst <$> q where
     q = mfix $ \ ~(_, contexts) -> do
         start <- mkRegI [(Lit 1 1, Lit 0 1)] $ Lit 1 1
-        let initial = tell [(0, start)]
-        (a, _, w) <- (runRWST (initial >> f)) contexts 0
+        let initial = tell [(FSMContext 0, start)]
+        (a, _, w) <- (runRWST (initial >> f)) contexts $ FSMContext 0
 
         return (a, w)
 
-wait :: Signal a -> FSMM a Int
+wait :: Signal a -> FSMM a FSMContext
 wait s = do
     current_context <- get
     contexts <- ask
@@ -60,7 +80,7 @@ wait s = do
         next' <- lift $ sig $ and' [r, s]
         return (r', next')
 
-    let next = current_context + 1
+    let next = newFSMContext current_context
     put next
     tell [(next, next_enable)]
     return next
@@ -75,18 +95,16 @@ infixl 2 .=
 -- conditional goto
 -- branch taken - 1 clock cycle delay
 -- not taken - no delay
-goto :: Int -> Signal a -> FSMM a Int
+goto :: FSMContext -> Signal a -> FSMM a FSMContext
 goto s c = do
     current_context <- get
-    contexts <- ask
-
     current_enable <- contextEnableSignal current_context
 
     dst_enable <- mfix $ \r -> do
         lift $ mkRegI [(and' [current_enable, c], Lit 1 1), (r, Lit 0 1)] $ Lit 0 1
     let
         next_enable = and' [current_enable, not' c]
-        next = current_context + 1
+        next = newFSMContext current_context
 
     put next
 
