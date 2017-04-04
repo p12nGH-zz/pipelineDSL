@@ -39,6 +39,7 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
 
     vcode' (Lit val width) = (show width) ++ "'d" ++ (show val)
     vcode' (Alias n _) = n
+    vcode' (WidthHint _ s) = vcode' s
     vcode' Undef = "'x"
     vcode' (ExtRef _ n) = vcode' n
     vcode' (RegRef n (Reg _ _ Nothing)) = "reg_" ++ (show n)

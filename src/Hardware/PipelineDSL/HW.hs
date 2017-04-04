@@ -23,7 +23,8 @@ module Hardware.PipelineDSL.HW (
     mkRegI,
     queryRefs,
     mapSignal,
-    addC
+    addC,
+    width
 ) where
 
 import Control.Monad
@@ -53,19 +54,21 @@ data Signal a = Alias String Int -- name, width
             | BinaryOp BOps (Signal a) (Signal a)
             | Undef
             | RegRef Int (Reg a) -- register, inserts 1 clock delay
+            | WidthHint Int (Signal a)
 
 -- first maybe arg allows refs to reference themselves
 -- without creating circular dependencies
 getSignalWidth :: (Maybe Int) -> Signal a -> Int
 getSignalWidth Nothing (SigRef _ _ s) = getSignalWidth Nothing s
 getSignalWidth r@(Just ref) (SigRef ref' _ s) = if ref == ref' then 0 else getSignalWidth r s
-getSignalWidth r (MultyOp _ []) = 0 -- never happens
+getSignalWidth r (MultyOp _ []) = undefined -- never happens
 getSignalWidth r (MultyOp _ s) = maximum $ map (getSignalWidth r) s
 getSignalWidth r (BinaryOp (Cmp _) _ _) = 1
 getSignalWidth r (BinaryOp _ s1 s2) = max (getSignalWidth r s1) (getSignalWidth r s2)
 getSignalWidth r (UnaryOp _ s) = getSignalWidth r s
 getSignalWidth r (Lit _ s) = s
 getSignalWidth r (Alias _ s) = s
+getSignalWidth _ (WidthHint s _) = s
 getSignalWidth Nothing (RegRef _ (Reg s _ _)) = maximum $ map ((getSignalWidth Nothing) . snd) s
 getSignalWidth r@(Just ref) (RegRef ref' (Reg s _ _)) = if ref == ref' then 0 else
     maximum $ map ((getSignalWidth r) . snd) s
@@ -79,6 +82,7 @@ mapSignal f s =  mapSignal' (f s) where
     mapSignal' (BinaryOp op s1 s2) = BinaryOp op (mapSignal f s1) (mapSignal f s2)
     mapSignal' (UnaryOp op s) = UnaryOp op (mapSignal f s)
     mapSignal' (SigRef n name s) = SigRef n name (mapSignal f s)
+    mapSignal' (WidthHint w s) = WidthHint w (mapSignal f s)
     mapSignal' x = x
 
 rewrite :: (Signal a -> Signal a) -> Signal a -> Signal a
@@ -88,6 +92,7 @@ rewrite f s =  f $ rewrite' (f s) where
     rewrite' (BinaryOp op s1 s2) = f $ BinaryOp op (rewrite f s1) (rewrite f s2)
     rewrite' (UnaryOp op s) = f $ UnaryOp op (rewrite f s)
     rewrite' (SigRef n name s) = f $ SigRef n name (rewrite f s)
+    rewrite' (WidthHint w s) = f $ WidthHint w (rewrite f s)
     rewrite' x = x
 
 queryRefs :: Signal a -> [a]
@@ -96,6 +101,7 @@ queryRefs (SigRef _ _ s) = queryRefs s
 queryRefs (MultyOp _ s) = concat $ map queryRefs s
 queryRefs (BinaryOp _ s1 s2) = (queryRefs s1) ++ (queryRefs s2)
 queryRefs (UnaryOp _ s) = queryRefs s
+queryRefs (WidthHint _ s) = queryRefs s
 queryRefs _ = []
 
 -- apply some rewrite rules to improve readability of generated verilog
@@ -215,3 +221,5 @@ mkReg' name reset_value reginput = do
 -- very unsafe pattern matching
 addC :: Signal a -> [(Signal a, Signal a)] -> HW a ()
 addC (RegRef i _) c = tell $ mempty {smRegCs = [RegC i c]}
+
+width = WidthHint
