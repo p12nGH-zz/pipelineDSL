@@ -125,8 +125,9 @@ goto dst c = do
     (current_context, current_task) <- get
     current_enable <- contextEnableSignal current_context
 
+    c' <- lift $ sig c
     dst_enable <- mfix $ \r -> do
-        lift $ mkRegI [(and' [current_enable, c], l1), (r, l0)] l0
+        lift $ mkRegI [(and' [current_enable, c'], l1), (r, l0)] l0
 
     let
         next_enable = and' [current_enable, not' c]
@@ -196,7 +197,8 @@ call (FSMTask taskid returnContext) = do
     -- we need to wait
     wait_reg <- mfix $ \r -> do
         let
-            wait_return = and' [not' returnEn, thisEn]
+            -- wait_return = and' [not' returnEn, thisEn]
+            wait_return = thisEn -- will not work if the task returns immediately
             clr_wait = and' [r, returnEn]
         lift $ mkRegI [(wait_return, l1), (clr_wait, l0)] l0
     
@@ -209,9 +211,9 @@ call (FSMTask taskid returnContext) = do
         
         next = newFSMContextCond current_context
     
-    next_en_s <- lift $ sig returnEn
+    next_en_s <- lift $ sig $ and' [returnEn, wait_reg]
 
-    tell $ mempty { transitions = [(next, next_en)] } 
+    tell $ mempty { transitions = [(next, next_en_s)] } 
     put (next, current_task)
 
     return current_context

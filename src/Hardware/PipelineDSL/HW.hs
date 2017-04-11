@@ -69,6 +69,7 @@ getSignalWidth r (UnaryOp _ s) = getSignalWidth r s
 getSignalWidth r (Lit _ s) = s
 getSignalWidth r (Alias _ s) = s
 getSignalWidth _ (WidthHint s _) = s
+getSignalWidth _ (RegRef _ (Reg [] _ _)) = 0
 getSignalWidth Nothing (RegRef _ (Reg s _ _)) = maximum $ map ((getSignalWidth Nothing) . snd) s
 getSignalWidth r@(Just ref) (RegRef ref' (Reg s _ _)) = if ref == ref' then 0 else
     maximum $ map ((getSignalWidth r) . snd) s

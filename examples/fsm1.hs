@@ -4,25 +4,32 @@ import Hardware.PipelineDSL
 (.!=) = BinaryOp (Cmp NotEqual)
 
 decr x = x .= x - 1
+wait1 = wait $ Lit 1 1
 
 main = putStrLn $ toVerilog $ do
     let s1 = (Alias "sig" 2)
-    r <- mkReg []
     p <- mkReg []
+    counter <- mkReg []
+
     fsm $ do
 
         wait_some <- task $ do
-            r .= 17
-            c <- decr r
-            goto c $ r .!= 2
-            wait $ Lit 1 1
+            wait1
+            c <- decr counter
+            goto c $ counter .!= 0
+            wait1
+
+        let
+            waitn n = do
+                counter .= Lit (n - 2) 32
+                call wait_some
 
         p .= 3
-        call wait_some
-        
+        waitn 10
         p .= 18
-        call wait_some
+        waitn 67
         p .= 31
-        -- call wait_some
+        waitn 13
+        p .= 72
 
         return ()
