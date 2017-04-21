@@ -38,7 +38,7 @@ import Data.Maybe (fromMaybe)
 data CmpOp = Equal | NotEqual | LessOrEqual | GreaterOrEqual | Less | Greater
 data MOps = Or | And | Sum | Mul
 data BOps = Sub | Cmp CmpOp
-data UOps = Not | Neg | Signum | Abs
+data UOps = Not | Neg | Signum | Abs | PickBit Int
 
 -- use this name in generated code, pick any, use exactly this one or like this one
 -- with suffix to avoid conflicts
@@ -63,8 +63,9 @@ getSignalWidth Nothing (SigRef _ _ s) = getSignalWidth Nothing s
 getSignalWidth r@(Just ref) (SigRef ref' _ s) = if ref == ref' then 0 else getSignalWidth r s
 getSignalWidth r (MultyOp _ []) = undefined -- never happens
 getSignalWidth r (MultyOp _ s) = maximum $ map (getSignalWidth r) s
-getSignalWidth r (BinaryOp (Cmp _) _ _) = 1
+getSignalWidth _ (BinaryOp (Cmp _) _ _) = 1
 getSignalWidth r (BinaryOp _ s1 s2) = max (getSignalWidth r s1) (getSignalWidth r s2)
+getSignalWidth _ (UnaryOp (PickBit _) _) = 1
 getSignalWidth r (UnaryOp _ s) = getSignalWidth r s
 getSignalWidth r (Lit _ s) = s
 getSignalWidth r (Alias _ s) = s
@@ -150,7 +151,7 @@ instance Num (Signal a) where
     (+) x y = MultyOp Sum [x, y]
     (-) = BinaryOp Sub
     signum = UnaryOp Signum
-    fromInteger x = Lit (fromInteger x) 32
+    fromInteger x = Lit (fromInteger x) 10
 
 data Comb a = Comb { ciid :: Int
                                    , cisignal :: Signal a
@@ -158,7 +159,7 @@ data Comb a = Comb { ciid :: Int
                                    , cideclare :: Bool } -- do we need to declare this signal
 
 -- condition/value pairs, initial(reset) value, optional name
-data Reg a = Reg [(Signal a, Signal a)] (Signal a) (Maybe String)
+data Reg a = Reg [(Signal a, Signal a)] (Signal a) HWName
 
 -- add additional conditions to existing reg
 data RegC a = RegC Int [(Signal a, Signal a)]
@@ -203,13 +204,13 @@ mkRef s = do
     return (r, i)
 
 mkReg :: [(Signal a, Signal a)] -> HW a (Signal a)
-mkReg = mkReg' Nothing 0
-mkNReg n = mkReg' (Just n) 0
-mkNRegX n = mkReg' (Just n) Undef
+mkReg = mkReg' HWNNoName 0
+mkNReg n = mkReg' (HWNExact n) 0
+mkNRegX n = mkReg' (HWNExact n) Undef
 
-mkRegI p i = mkReg' Nothing i p
+mkRegI p i = mkReg' HWNNoName i p
 
-mkReg' :: Maybe String -> Signal a -> [(Signal a, Signal a)]  -> HW a (Signal a)
+mkReg' :: HWName -> Signal a -> [(Signal a, Signal a)]  -> HW a (Signal a)
 mkReg' name reset_value reginput = do
     n <- get
     put $ n + 1

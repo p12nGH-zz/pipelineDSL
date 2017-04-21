@@ -4,7 +4,8 @@ module Hardware.PipelineDSL.FSM (
     (.=),
     goto,
     task,
-    call
+    call,
+    label
 ) where
 
 import Control.Monad
@@ -214,6 +215,17 @@ call (FSMTask taskid returnContext) = do
     next_en_s <- lift $ sig $ and' [returnEn, wait_reg]
 
     tell $ mempty { transitions = [(next, next_en_s)] } 
+    put (next, current_task)
+
+    return current_context
+
+label :: FSMM a FSMContext
+label = do
+    (current_context, current_task) <- get
+    current_enable <- contextEnableSignal current_context
+
+    let next = newFSMContextSeq current_context
+    trns next current_enable
     put (next, current_task)
 
     return current_context

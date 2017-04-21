@@ -32,6 +32,7 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (MultyOp o ops) = "(" ++ intercalate (mOpsSign o) (map vcode' ops) ++ ")"
     vcode' (BinaryOp o op1 op2) = "(" ++ (vcode' op1) ++ (bOpsSign o) ++ (vcode' op2) ++ ")"
 
+    vcode' (UnaryOp (PickBit n) op) = (vcode' op) ++ "[" ++ (show n) ++ "]"
     vcode' (UnaryOp o op@(Alias _ _)) = (uOpsSign o)  ++ (vcode' op)
     vcode' (UnaryOp o op@(SigRef _ _ _)) = (uOpsSign o)  ++ (vcode' op)
     vcode' (UnaryOp o op@(RegRef _ _)) = (uOpsSign o)  ++ (vcode' op)
@@ -42,8 +43,7 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (WidthHint _ s) = vcode' s
     vcode' Undef = "'x"
     vcode' (ExtRef _ n) = vcode' n
-    vcode' (RegRef n (Reg _ _ Nothing)) = "reg_" ++ (show n)
-    vcode' (RegRef n (Reg _ _ (Just name))) = name ++ (show n)
+    vcode' (RegRef n (Reg _ _ name)) = regname n name
 
 print_width 1 = ""
 print_width n = "[" ++ (show $ n - 1) ++ ":0] "
@@ -63,6 +63,10 @@ printSigs s = unlines (map printStg stgs) where
 toVerilog m = toVerilog' s where
     (_, s) = rHW m
 
+regname i HWNNoName = "reg_" ++ (show i)
+regname i (HWNLike n) = "reg_" ++ n ++ "_" ++ (show i)
+regname _ (HWNExact n) = n
+
 toVerilog' s = (printSigs s) ++ (unlines $ map printStg stgs)  where
     stgs = smRegs s
     addnl_conditions n = concat $ map u $ filter (f n) $ smRegCs s where
@@ -72,8 +76,8 @@ toVerilog' s = (printSigs s) ++ (unlines $ map printStg stgs)  where
     printStg (i, x@(Reg c reset_value mname)) = intercalate "\n" [decl] where
         width = maximum $ map ((getSignalWidth (Just i)). snd) (c ++ (addnl_conditions i))
 
-        name = fromMaybe "reg_" mname
-        reg = name ++ (show i)
+        reg = regname i mname
+
         cond (e, v) =
             "if (" ++ (vcode e) ++ ")\n" ++
             "            " ++ reg ++ " <= " ++ (vcode v) ++ ";"
