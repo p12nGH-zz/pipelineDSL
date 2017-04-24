@@ -32,7 +32,7 @@ code = code' . simplify . simplify . simplify . simplify  where
 
     code' (BinaryOp o op1 op2) = "(" ++ (bOpsSign o) ++ (code' op1) ++ " " ++ (code' op2) ++ ")"
     code' (UnaryOp o op) = "( " ++ (uOpsSign o) ++ (code' op) ++ ")"
-    code' (Lit val width) = printf "(_ bv%d %d)" val width 
+    code' (Lit val) = printf "(_ bv%d 32)" val -- 32 -- TODO: change hardcoded value
     code' (Alias n _) = n
     code' Undef = "'x"
     code' (RegRef n _) = "reg_" ++ (show n)

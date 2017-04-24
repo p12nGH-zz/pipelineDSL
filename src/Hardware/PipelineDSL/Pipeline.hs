@@ -153,7 +153,7 @@ stageControl name input vld rdy downstreamStages = mfix $ \me -> do
         declr = and' [not' take', (or' [takenext', dropnext'])]
         clr = and' [not' take', (or' [takenext', dropnext'])]
 
-    dereg <- mkNReg (name ++ "_dereg") [(take', Lit 1 1), (declr, Lit 0 1)]
+    dereg <- mkNReg (name ++ "_dereg") [(take', 1), (declr, 0)]
     reg <- mkNRegX (name ++ "_lstgr") [(take', input), (clr, Undef)]
     sign (name ++ "_take") take'
     sign (name ++ "_rdy") rdy'
@@ -172,19 +172,19 @@ stageControl name input vld rdy downstreamStages = mfix $ \me -> do
     return $ ExtRef (Stage $ LogicStage ctrl input reg) reg
 
 stage :: Signal -> PipeM Signal
-stage = stage' Nothing (Lit 1 1) 0 (Lit 1 1)
+stage = stage' Nothing 1 0 1
 
 stagen :: String -> Signal -> PipeM Signal
-stagen name s = stage' (Just name) (Lit 1 1) 0 (Lit 1 1) s
+stagen name s = stage' (Just name) 1 0 1 s
 
 stageEn :: Signal -> Signal -> PipeM Signal
-stageEn en s = stage' Nothing en 0 (Lit 1 1) s
+stageEn en s = stage' Nothing en 0 1 s
 
 stageEnN :: String -> Signal -> Signal -> PipeM Signal
-stageEnN name en s = stage' (Just name) en 0 (Lit 1 1) s
+stageEnN name en s = stage' (Just name) en 0 1 s
 
 stageConditional :: String -> Signal -> Signal -> PipeM Signal
-stageConditional name cnd s = stage' (Just name) (Lit 1 1) 0 cnd s
+stageConditional name cnd s = stage' (Just name) 1 0 cnd s
 
 stage' :: (Maybe String) -> Signal -> Int -> Signal -> Signal -> PipeM Signal
 stage' mname rdySignal bufferdepth vld inputSignal = do
@@ -227,7 +227,7 @@ stage' mname rdySignal bufferdepth vld inputSignal = do
         stageControl' = stageControl name
 
     let
-        f ds s = stageControl' s (Lit 1 1) (Lit 1 1) ds
+        f ds s = stageControl' s 1 1 ds
     r <- lift $ stageControl' ds vld' rdySignal (pickDsByDistance 0)
     ls <- lift $ foldMapM f (map pickDsByDistance [1..ndelays]) r
 

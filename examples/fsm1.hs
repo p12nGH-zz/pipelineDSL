@@ -4,7 +4,7 @@ import Hardware.PipelineDSL
 (.!=) = BinaryOp (Cmp NotEqual)
 
 decr x = x .= x - 1
-wait1 = wait $ Lit 1 1
+wait1 = wait $ 1
 
 main = putStrLn $ toVerilog $ do
     let s1 = (Alias "sig" 2)
@@ -21,7 +21,7 @@ main = putStrLn $ toVerilog $ do
 
         let
             waitn n = do
-                counter .= Lit (n - 2) 32
+                counter .= width 32 (n - 2)
                 call wait_some
 
         p .= 3

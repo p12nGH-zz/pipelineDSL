@@ -10,7 +10,7 @@ module Hardware.PipelineDSL.FSM (
 
 import Control.Monad
 import Control.Applicative
-import Data.Monoid ( (<>) )
+import Data.Monoid
 import Control.Monad.Fix
 import Data.Ix (range)
 import Control.Monad.Trans.RWS.Lazy hiding (Sum)
@@ -68,15 +68,12 @@ contextEnableSignal i = do
 currentEnable :: FSMM a (Signal a)
 currentEnable = fst <$> get >>= contextEnableSignal
 
-l1 = Lit 1 1
-l0 = Lit 0 1
-
 bitref s = lift $ (width 1) <$> sig s
 
 fsm :: FSMM a b -> HW a b
 fsm f = fst <$> q where
     q = mfix $ \ ~(_, contexts) -> do
-        start <- mkRegI [(l1, l0)] $ l1
+        start <- mkRegI [(1, 0)] $ 1
         let
             initial = tell $ mempty {
                 transitions = [(FSMContext 0 0, start)]
@@ -93,7 +90,7 @@ wait s = do
 
     -- create state reg and next context enable logic
     (_, next_enable) <- mfix $ \ ~(r, next) -> do
-        r' <- lift $ mkRegI [(current_enable, l1), (next, l0)] $ l0
+        r' <- lift $ mkRegI [(current_enable, 1), (next, 0)] $ 0
         next' <- lift $ sig $ and' [r, s]
         return (r', next')
 
@@ -128,7 +125,7 @@ goto dst c = do
 
     c' <- lift $ sig c
     dst_enable <- mfix $ \r -> do
-        lift $ mkRegI [(and' [current_enable, c'], l1), (r, l0)] l0
+        lift $ mkRegI [(and' [current_enable, c'], 1), (r, 0)] 0
 
     let
         next_enable = and' [current_enable, not' c]
@@ -201,7 +198,7 @@ call (FSMTask taskid returnContext) = do
             -- wait_return = and' [not' returnEn, thisEn]
             wait_return = thisEn -- will not work if the task returns immediately
             clr_wait = and' [r, returnEn]
-        lift $ mkRegI [(wait_return, l1), (clr_wait, l0)] l0
+        lift $ mkRegI [(wait_return, 1), (clr_wait, 0)] 0
     
     -- after wait context
     let

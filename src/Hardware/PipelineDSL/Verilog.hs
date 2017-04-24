@@ -38,7 +38,7 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (UnaryOp o op@(RegRef _ _)) = (uOpsSign o)  ++ (vcode' op)
     vcode' (UnaryOp o op) = (uOpsSign o) ++ "(" ++ (vcode' op) ++ ")"
 
-    vcode' (Lit val width) = (show width) ++ "'d" ++ (show val)
+    vcode' (Lit val) = "'d" ++ (show val)
     vcode' (Alias n _) = n
     vcode' (WidthHint _ s) = vcode' s
     vcode' Undef = "'x"

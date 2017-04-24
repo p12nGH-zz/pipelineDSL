@@ -46,7 +46,7 @@ data HWName = HWNNoName | HWNExact String | HWNLike String
 
 -- AST representation
 data Signal a = Alias String Int -- name, width
-            | Lit Int Int -- toInteger, width can be fixed or any (value, width)
+            | Lit Int -- toInteger, width can be fixed or any (value, width)
             | SigRef Int HWName (Signal a)
             | ExtRef a (Signal a)   -- signal reference managed outside of HW monad
             | UnaryOp UOps (Signal a)
@@ -67,7 +67,7 @@ getSignalWidth _ (BinaryOp (Cmp _) _ _) = 1
 getSignalWidth r (BinaryOp _ s1 s2) = max (getSignalWidth r s1) (getSignalWidth r s2)
 getSignalWidth _ (UnaryOp (PickBit _) _) = 1
 getSignalWidth r (UnaryOp _ s) = getSignalWidth r s
-getSignalWidth r (Lit _ s) = s
+getSignalWidth _ (Lit v) = reprWidth v
 getSignalWidth r (Alias _ s) = s
 getSignalWidth _ (WidthHint s _) = s
 getSignalWidth _ (RegRef _ (Reg [] _ _)) = 0
@@ -110,31 +110,31 @@ queryRefs _ = []
 -- use mapSignal to apply rules recursively
 simplify :: Signal a -> Signal a
 simplify = rewrite smpl where
-    smpl (UnaryOp Not (Lit 1 1)) = Lit 0 1
-    smpl (UnaryOp Not (Lit 0 1)) = Lit 1 1
+    smpl (UnaryOp Not (Lit 1)) = 0
+    smpl (UnaryOp Not (Lit 0)) = 1
     smpl (UnaryOp Not (UnaryOp Not s)) = s
 
     smpl (MultyOp Or s) = if (any (not . f0) s) then r1 else r where
         r = case (filter f1 s) of 
-            [] -> Lit 1 1
+            [] -> 1
             [x] -> x
             x -> MultyOp Or x
 
     smpl (MultyOp And s) = r where
         r = case (filter f0 s) of 
-            [] -> Lit 1 1
+            [] -> 1
             [x] -> x
             x -> MultyOp And x
  
     smpl x = x
 
-    f1 (Lit 0 1) = False
+    f1 (Lit 0) = False
     f1 _ = True
-    f0 (Lit 1 1) = False
+    f0 (Lit 1) = False
     f0 _ = True
 
-    r0 = Lit 0 1
-    r1 = Lit 1 1
+    r0 = Lit 0
+    r1 = Lit 1
 
 {-
 -- convert user type to Signal representation
@@ -151,7 +151,7 @@ instance Num (Signal a) where
     (+) x y = MultyOp Sum [x, y]
     (-) = BinaryOp Sub
     signum = UnaryOp Signum
-    fromInteger x = Lit (fromInteger x) 10
+    fromInteger x = Lit (fromInteger x)
 
 data Comb a = Comb { ciid :: Int
                                    , cisignal :: Signal a
@@ -225,3 +225,12 @@ addC :: Signal a -> [(Signal a, Signal a)] -> HW a ()
 addC (RegRef i _) c = tell $ mempty {smRegCs = [RegC i c]}
 
 width = WidthHint
+
+-- compute the necessary number of bits to represent a number
+reprWidth :: Int -> Int
+reprWidth i = rw' 1 1 where
+    rw' n v =
+        if i <= v then
+            n
+        else
+            rw' (n + 1) (v * 2)
