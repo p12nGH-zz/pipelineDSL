@@ -29,6 +29,7 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (SigRef n HWNNoName _) = "sig_" ++ (show n)
     vcode' (SigRef _ (HWNExact n) _) = n
     vcode' (SigRef _ (HWNLike n) _) = n ++ "_" ++ (show n)
+    vcode' (MultyOp Concat ops) = "{" ++ intercalate ", " (map vcode' ops) ++ "}"
     vcode' (MultyOp o ops) = "(" ++ intercalate (mOpsSign o) (map vcode' ops) ++ ")"
     vcode' (BinaryOp o op1 op2) = "(" ++ (vcode' op1) ++ (bOpsSign o) ++ (vcode' op2) ++ ")"
 

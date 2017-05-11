@@ -36,7 +36,7 @@ import Control.Monad.Trans.RWS.Lazy hiding (Sum)
 import Data.Maybe (fromMaybe)
 
 data CmpOp = Equal | NotEqual | LessOrEqual | GreaterOrEqual | Less | Greater
-data MOps = Or | And | Sum | Mul
+data MOps = Or | And | Sum | Mul | Concat
 data BOps = Sub | Cmp CmpOp
 data UOps = Not | Neg | Signum | Abs | PickBit Int
 
@@ -62,6 +62,7 @@ getSignalWidth :: (Maybe Int) -> Signal a -> Int
 getSignalWidth Nothing (SigRef _ _ s) = getSignalWidth Nothing s
 getSignalWidth r@(Just ref) (SigRef ref' _ s) = if ref == ref' then 0 else getSignalWidth r s
 getSignalWidth r (MultyOp _ []) = undefined -- never happens
+getSignalWidth r (MultyOp Concat s) = foldr (+) 0 $ map (getSignalWidth r) s
 getSignalWidth r (MultyOp _ s) = maximum $ map (getSignalWidth r) s
 getSignalWidth _ (BinaryOp (Cmp _) _ _) = 1
 getSignalWidth r (BinaryOp _ s1 s2) = max (getSignalWidth r s1) (getSignalWidth r s2)
@@ -113,6 +114,8 @@ simplify = rewrite smpl where
     smpl (UnaryOp Not (Lit 1)) = 0
     smpl (UnaryOp Not (Lit 0)) = 1
     smpl (UnaryOp Not (UnaryOp Not s)) = s
+
+    smpl (MultyOp Concat [s]) = s
 
     smpl (MultyOp Or s) = if (any (not . f0) s) then r1 else r where
         r = case (filter f1 s) of 

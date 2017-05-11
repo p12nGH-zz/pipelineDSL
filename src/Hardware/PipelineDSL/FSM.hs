@@ -5,7 +5,8 @@ module Hardware.PipelineDSL.FSM (
     goto,
     task,
     call,
-    label
+    label,
+    FSMM
 ) where
 
 import Control.Monad
@@ -23,9 +24,7 @@ import Hardware.PipelineDSL.Verilog
 data FSMState a = FSMState 
     { fsmStId :: Int
     , fsmStActivate :: Signal a
-    , fsmStActive :: Signal a
-    , fsmStPrevious :: [FSMState a]
-    , fsmStNext :: [(Signal a, FSMState a)] }
+    , fsmStActive :: Signal a }
 
 type Signal a = HW.Signal a
 
@@ -83,10 +82,45 @@ fsm f = fst <$> q where
 
         return (a, w)
 
+addSt :: FSMM a FSMContext
+addSt = do
+    (current_context, current_task) <- get
+
+    let next = newFSMContextSeq current_context
+    put (next, current_task)
+    return next
+
+addT :: FSMM a FSMTaskId
+addT = do
+    (current_context, current_task) <- get
+
+    let next = newFSMTaskId current_task
+    put (current_context, next)
+    return next
+
+addStE en = do
+    n <- addSt
+    trns n en
+    return n
+
+-- enable signal for current context
+thisEn = do
+    (current_context, current_task) <- get
+    contextEnableSignal current_context
+
+thisC :: FSMM a FSMContext
+thisC = do
+    (current_context, _) <- get
+    return current_context
+
+thisT :: FSMM a FSMTaskId
+thisT = do
+    (_, tsk) <- get
+    return tsk
+
 wait :: Signal a -> FSMM a FSMContext
 wait s = do
-    (current_context, current_task) <- get
-    current_enable <- contextEnableSignal current_context
+    current_enable <- thisEn
 
     -- create state reg and next context enable logic
     (_, next_enable) <- mfix $ \ ~(r, next) -> do
@@ -94,21 +128,14 @@ wait s = do
         next' <- lift $ sig $ and' [r, s]
         return (r', next')
 
-    let next = newFSMContextSeq current_context
-    put (next, current_task)
-    trns next next_enable
-    return next
+    addStE next_enable
 
 infixl 2 .=
 (.=) r v = do
-    (current_context, current_task) <- get
-    current_enable <- contextEnableSignal current_context
+    current_context <- thisC
+    current_enable <- thisEn
     lift $ addC r [(current_enable, v)]
-
-    let next = newFSMContextSeq current_context
-    trns next current_enable
-    put (next, current_task)
-
+    addStE current_enable
     return current_context
 
 trns c e = tell $ mempty {transitions = [(c, e)]}
@@ -120,29 +147,23 @@ trns c e = tell $ mempty {transitions = [(c, e)]}
 
 goto :: FSMContext -> Signal a -> FSMM a FSMContext
 goto dst c = do
-    (current_context, current_task) <- get
-    current_enable <- contextEnableSignal current_context
+    current_enable <- thisEn
 
     c' <- lift $ sig c
     dst_enable <- mfix $ \r -> do
         lift $ mkRegI [(and' [current_enable, c'], 1), (r, 0)] 0
 
-    let
-        next_enable = and' [current_enable, not' c]
-        next = newFSMContextCond current_context
-
-    trns next next_enable
     trns dst  dst_enable
 
-    put (next, current_task)
-
-    return next
+    addStE $ and' [current_enable, not' c]
 
 -- creates new task in FSM context and returns a handle
 task :: FSMM a b -> FSMM a FSMTask
 task t = do
-    (current_context, current_task) <- get
-    before_task_en <- contextEnableSignal current_context
+
+    current_context <- thisC
+    before_task_en <- thisEn
+    current_task <- thisT
 
     -- get call sites for this task
     call_contexts <- callSites <$> ask
@@ -150,44 +171,36 @@ task t = do
     
     -- find enable signals for every context where this task is called
     let
-        this_task = newFSMTaskId current_task
-
         -- task call enable signal
         -- get enable signal for ith context
         enables i = map snd $ filter (\(x, _) -> x == i) fsm_contexts
 
         f (_, t) = current_task == t
         en = or' $ concat $ map enables $ map fst $ filter f call_contexts
-        -- create new context and instantiate task body
-        -- add enables to newly created context
-        call_context = newFSMContextSeq current_context
 
-    en_sig <- bitref en
+    -- create new context and instantiate task body
+    -- add enables to newly created context
+    addStE en
+    addT
 
-    trns call_context en_sig
-
-    put (call_context, this_task) -- instantiate task body in this context
+    -- instantiate task body in this context
 
     t
 
-    (current_context, _) <- get
     -- add new context after task body instantiation
     -- propagate enable signal from the context before task body instantiation
-    let 
-        next = newFSMContextCond current_context
+    cc <- thisC
+    addStE before_task_en
 
-    trns next before_task_en
-    put (next, this_task)
-
-    return $ FSMTask current_task current_context
+    return $ FSMTask current_task cc
 
 
 call :: FSMTask -> FSMM a FSMContext
 call (FSMTask taskid returnContext) = do
-    (current_context, current_task) <- get
+    current_context <- thisC
     tell $ mempty { callSites = [(current_context, taskid)] }
 
-    thisEn <- contextEnableSignal current_context
+    te <- thisEn
     returnEn <- contextEnableSignal returnContext
 
     -- two possible options
@@ -196,33 +209,16 @@ call (FSMTask taskid returnContext) = do
     wait_reg <- mfix $ \r -> do
         let
             -- wait_return = and' [not' returnEn, thisEn]
-            wait_return = thisEn -- will not work if the task returns immediately
+            wait_return = te -- will not work if the task returns immediately
             clr_wait = and' [r, returnEn]
         lift $ mkRegI [(wait_return, 1), (clr_wait, 0)] 0
-    
-    -- after wait context
-    let
-        returned_immediately = and' [returnEn, thisEn]
-        returned_after_wait = and' [returnEn, wait_reg]
-
-        next_en = or' [returned_immediately, returned_after_wait]
-        
-        next = newFSMContextCond current_context
-    
+   
+   
     next_en_s <- lift $ sig $ and' [returnEn, wait_reg]
 
-    tell $ mempty { transitions = [(next, next_en_s)] } 
-    put (next, current_task)
+    addStE next_en_s
 
     return current_context
 
 label :: FSMM a FSMContext
-label = do
-    (current_context, current_task) <- get
-    current_enable <- contextEnableSignal current_context
-
-    let next = newFSMContextSeq current_context
-    trns next current_enable
-    put (next, current_task)
-
-    return current_context
+label = thisEn >>= addStE

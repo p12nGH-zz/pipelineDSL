@@ -10,16 +10,16 @@ reg = mkReg []
 regn n = mkNReg n []
 
 decr x = x .= x - 1
-wait1 = wait $ Lit 1 1
-l1 = Lit 1 1
-l0 = Lit 0 1
-chrToS n = Lit (ord n) 8
+wait1 = wait $ Lit 1
+l1 = Lit 1
+l0 = Lit 0
+chrToS n = width 8 (Lit (ord n))
 
 fpgaSpeed = 50000000
 uartBaudRate = 9600
 uartDelayClocks = quot fpgaSpeed uartBaudRate
 
-jmp l = goto l l1
+jmp l = goto l 1
 
 loop a = do
     l <- label
@@ -36,7 +36,7 @@ waitD = do
 
     let
         waitn n = do
-            counter .= Lit (n - 2) 16
+            counter .= width 16 ((fromIntegral n) - 2)
             call wait_some
     return waitn
 
@@ -49,13 +49,13 @@ waitMsD delay1ms = do
         goto c $ counter .!= 0
     let
         waitn n = do
-            counter .= Lit (n - 2) 12
+            counter .= width 16 (n - 2)
             call wait_some
     return waitn
 
 main = putStrLn $ toVerilog $ do
     chr <- reg
-    dout <- regn "dout"
+    dout <- regn "doutx"
 
     fsm $ do
         dout .= l1
