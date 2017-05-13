@@ -44,7 +44,7 @@ toSMT_LIBv2 m = stages where
     (_, h, s) = rPipe m
     signals = unlines (map printSig $ smSignals h)
     printSig (Comb i x name declare) = assert where
-        width = getSignalWidth (Just i) x
+        width = getSignalWidth x
         sig = case name of
             HWNNoName -> "sig_" ++ (show i)
             HWNExact n -> n
@@ -58,7 +58,7 @@ toSMT_LIBv2 m = stages where
         smt = (printSMT sname $ pipeStageSignal pstg) ++ "\n" ++ (printSMT cname $ pipeStagePass pstg)
 
         printSMT n s = assert where
-            width = getSignalWidth (Just i) s
+            width = getSignalWidth s
             reg = n
             decl = "(declare-const " ++ reg ++ " (_ BitVec " ++ (show width) ++ "))\n"
             assert = decl ++ "(assert (= " ++ reg ++ " " ++ (code s) ++ "))"

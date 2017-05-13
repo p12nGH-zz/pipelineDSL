@@ -119,7 +119,7 @@ verilog f = toVerilog m where
     stgs = smStages sm
     pipectrl = PipeCtrl stgs
     m = runRWST f pipectrl 0 -- Pipe
-    r@((a', _, sm), _, sigs) = runRWS m () 0 -- HW
+    r@((_ , _, sm), _, w) = runRWS m w 0 -- HW
 
 
 sigp :: Signal -> PipeM Signal

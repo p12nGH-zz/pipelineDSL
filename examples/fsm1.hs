@@ -2,7 +2,7 @@ import Hardware.PipelineDSL
 
 (.==) = BinaryOp (Cmp Equal)
 (.!=) = BinaryOp (Cmp NotEqual)
-
+cc = MultyOp Concat
 decr x = x .= x - 1
 wait1 = wait $ 1
 
@@ -10,6 +10,8 @@ main = putStrLn $ toVerilog $ do
     let s1 = (Alias "sig" 2)
     p <- mkReg []
     counter <- mkReg []
+
+    xx <- mkReg []
 
     fsm $ do
 
@@ -31,5 +33,6 @@ main = putStrLn $ toVerilog $ do
         p .= 31
         waitn 13
         p .= 72
+        xx .= cc [p, counter]
 
         return ()

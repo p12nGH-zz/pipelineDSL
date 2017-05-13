@@ -56,27 +56,27 @@ data Signal a = Alias String Int -- name, width
             | RegRef Int (Reg a) -- register, inserts 1 clock delay
             | WidthHint Int (Signal a)
 
--- first maybe arg allows refs to reference themselves
--- without creating circular dependencies
-getSignalWidth :: (Maybe Int) -> Signal a -> Int
-getSignalWidth Nothing (SigRef _ _ s) = getSignalWidth Nothing s
-getSignalWidth r@(Just ref) (SigRef ref' _ s) = if ref == ref' then 0 else getSignalWidth r s
-getSignalWidth r (MultyOp _ []) = undefined -- never happens
-getSignalWidth r (MultyOp Concat s) = foldr (+) 0 $ map (getSignalWidth r) s
-getSignalWidth r (MultyOp _ s) = maximum $ map (getSignalWidth r) s
-getSignalWidth _ (BinaryOp (Cmp _) _ _) = 1
-getSignalWidth r (BinaryOp _ s1 s2) = max (getSignalWidth r s1) (getSignalWidth r s2)
-getSignalWidth _ (UnaryOp (PickBit _) _) = 1
-getSignalWidth r (UnaryOp _ s) = getSignalWidth r s
-getSignalWidth _ (Lit v) = reprWidth v
-getSignalWidth r (Alias _ s) = s
-getSignalWidth _ (WidthHint s _) = s
-getSignalWidth _ (RegRef _ (Reg [] _ _)) = 0
-getSignalWidth Nothing (RegRef _ (Reg s _ _)) = maximum $ map ((getSignalWidth Nothing) . snd) s
-getSignalWidth r@(Just ref) (RegRef ref' (Reg s _ _)) = if ref == ref' then 0 else
-    maximum $ map ((getSignalWidth r) . snd) s
-getSignalWidth r Undef = 0
-getSignalWidth r (ExtRef _ s) = getSignalWidth r s
+
+getSignalWidth :: Signal a -> Int
+getSignalWidth s = getSignalWidth' [] s where
+    -- first [Int] arg allows refs to reference themselves
+    -- without creating circular dependencies
+    getSignalWidth' r (SigRef ref _ s) = if elem ref r then 0 else getSignalWidth' (ref:r) s
+    getSignalWidth' r (MultyOp _ []) = undefined -- never happens
+    getSignalWidth' r (MultyOp Concat s) = foldr (+) 0 $ map (getSignalWidth' r) s
+    getSignalWidth' r (MultyOp _ s) = maximum $ map (getSignalWidth' r) s
+    getSignalWidth' _ (BinaryOp (Cmp _) _ _) = 1
+    getSignalWidth' r (BinaryOp _ s1 s2) = max (getSignalWidth' r s1) (getSignalWidth' r s2)
+    getSignalWidth' _ (UnaryOp (PickBit _) _) = 1
+    getSignalWidth' r (UnaryOp _ s) = getSignalWidth' r s
+    getSignalWidth' _ (Lit v) = reprWidth v
+    getSignalWidth' r (Alias _ s) = s
+    getSignalWidth' _ (WidthHint s _) = s
+    getSignalWidth' _ (RegRef _ (Reg [] _ _)) = 0
+    getSignalWidth' r (RegRef ref' (Reg s _ _)) = if elem ref' r then 0 else
+        maximum $ map ((getSignalWidth'  (ref':r)) . snd) s
+    getSignalWidth' r Undef = 0
+    getSignalWidth' r (ExtRef _ s) = getSignalWidth' r s
 
 mapSignal :: (Signal a -> Signal a) -> Signal a -> Signal a
 mapSignal f s =  mapSignal' (f s) where
@@ -176,10 +176,10 @@ instance Monoid (SigMap a) where
     mempty = SigMap [] [] []
     mappend (SigMap s1 s2 s3) (SigMap s1' s2' s3') = SigMap (s1 <> s1') (s2 <> s2') (s3 <> s3')
 
-type HW a = RWS () (SigMap a) Int
+type HW a = RWS (SigMap a) (SigMap a) Int
 
 rHW m = (a, sigs) where
-    r@(a, _, sigs) = runRWS m () 0
+    r@(a, _, sigs) = runRWS m sigs 0
 
 -- creates reference
 sig :: Signal a -> HW a (Signal a)
@@ -216,8 +216,13 @@ mkRegI p i = mkReg' HWNNoName i p
 mkReg' :: HWName -> Signal a -> [(Signal a, Signal a)]  -> HW a (Signal a)
 mkReg' name reset_value reginput = do
     n <- get
+    rc <- smRegCs <$> ask
     put $ n + 1
-    let r =  Reg reginput reset_value name
+    let 
+        thisR (RegC n' cc) = if n' == n then cc else []
+        tc = concat $ map thisR rc -- additional conditions added using addC function
+        r = Reg (reginput ++ tc) reset_value name
+
     tell $ mempty {smRegs = [(n, r)]}
     return $ RegRef n r
 

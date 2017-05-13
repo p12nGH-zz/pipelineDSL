@@ -51,7 +51,7 @@ print_width n = "[" ++ (show $ n - 1) ++ ":0] "
 
 printSigs s = unlines (map printStg stgs) where
     printStg (Comb i x name declare) = intercalate "\n" [decl] where
-        width = getSignalWidth (Just i) x
+        width = getSignalWidth x
         sig = case name of
             HWNNoName -> "sig_" ++ (show i)
             HWNLike n -> n ++ "_" ++ (show i)
@@ -70,19 +70,16 @@ regname _ (HWNExact n) = n
 
 toVerilog' s = (printSigs s) ++ (unlines $ map printStg stgs)  where
     stgs = smRegs s
-    addnl_conditions n = concat $ map u $ filter (f n) $ smRegCs s where
-        f n (RegC m _) = m == n -- filter 
-        u (RegC _ c) = c -- unpack
-    
+
     printStg (i, x@(Reg c reset_value mname)) = intercalate "\n" [decl] where
-        width = maximum $ map ((getSignalWidth (Just i)). snd) (c ++ (addnl_conditions i))
+        width = maximum $ map (getSignalWidth . snd) c
 
         reg = regname i mname
 
         cond (e, v) =
             "if (" ++ (vcode e) ++ ")\n" ++
             "            " ++ reg ++ " <= " ++ (vcode v) ++ ";"
-        condassigns = intercalate "\n        else " $ map cond (c ++ (addnl_conditions i))
+        condassigns = intercalate "\n        else " $ map cond c
 
         decl = "\nlogic " ++ (print_width width) ++ reg ++ ";\n" ++
             "always @(posedge clk or negedge rst_n) begin\n" ++
