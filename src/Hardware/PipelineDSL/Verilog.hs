@@ -37,14 +37,17 @@ vcode = vcode' . simplify . simplify . simplify . simplify  where
     vcode' (UnaryOp o op@(Alias _ _)) = (uOpsSign o)  ++ (vcode' op)
     vcode' (UnaryOp o op@(SigRef _ _ _)) = (uOpsSign o)  ++ (vcode' op)
     vcode' (UnaryOp o op@(RegRef _ _)) = (uOpsSign o)  ++ (vcode' op)
+    vcode' (UnaryOp o op@(LutRef _ _)) = (uOpsSign o)  ++ (vcode' op)
     vcode' (UnaryOp o op) = (uOpsSign o) ++ "(" ++ (vcode' op) ++ ")"
 
     vcode' (Lit val) = "'d" ++ (show val)
     vcode' (Alias n _) = n
+    vcode' (WidthHint w (Lit val)) = (show w) ++ "'d" ++ (show val)
     vcode' (WidthHint _ s) = vcode' s
     vcode' Undef = "'x"
     vcode' (ExtRef _ n) = vcode' n
     vcode' (RegRef n (Reg _ _ name)) = regname n name
+    vcode' (LutRef n (Lut _ _ _ name)) = lutname n name
 
 print_width 1 = ""
 print_width n = "[" ++ (show $ n - 1) ++ ":0] "
@@ -64,11 +67,34 @@ printSigs s = unlines (map printStg stgs) where
 toVerilog m = toVerilog' s where
     (_, s) = rHW m
 
-regname i HWNNoName = "reg_" ++ (show i)
-regname i (HWNLike n) = "reg_" ++ n ++ "_" ++ (show i)
-regname _ (HWNExact n) = n
+hwname t i HWNNoName = t ++ (show i)
+hwname t i (HWNLike n) = t ++ n ++ "_" ++ (show i)
+hwname t _ (HWNExact n) = n
 
-toVerilog' s = (printSigs s) ++ (unlines $ map printStg stgs)  where
+regname = hwname "reg_"
+lutname = hwname "lut_"
+
+printLuts s = (unlines $ map printLut luts) where
+    luts = smLuts s
+
+    printLut (i, x@(Lut input value_pairs default_value mname)) = intercalate "\n" [decl] where
+        width = maximum $ map (getSignalWidth . snd) value_pairs
+
+        lut = lutname i mname
+
+        cond (e, v) =
+            (vcode e) ++ " : " ++ lut ++ " = " ++ (vcode v) ++ ";"
+        caseassigns = intercalate "\n        " $ map cond value_pairs
+
+        decl = "\nlogic " ++ (print_width width) ++ lut ++ ";\n" ++
+            "always_comb begin\n" ++
+            "    unique case (" ++ (vcode input) ++ ")\n        " ++
+            caseassigns ++
+            "\n        default: " ++ lut ++ " = " ++ (vcode default_value) ++ ";" ++
+            "\n    endcase\n" ++
+            "end\n\n"
+
+toVerilog' s = (printSigs s) ++  (printLuts s) ++ (unlines $ map printStg stgs)  where
     stgs = smRegs s
 
     printStg (i, x@(Reg c reset_value mname)) = intercalate "\n" [decl] where

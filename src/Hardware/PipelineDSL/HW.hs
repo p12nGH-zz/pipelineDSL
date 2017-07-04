@@ -12,6 +12,7 @@ module Hardware.PipelineDSL.HW (
     CmpOp (..),
     Reg (..),
     RegC (..),
+    Lut (..),
     HWName (..),
     Comb (..),
     simplify,
@@ -24,7 +25,8 @@ module Hardware.PipelineDSL.HW (
     queryRefs,
     mapSignal,
     addC,
-    width
+    width,
+    mkLut
 ) where
 
 import Control.Monad
@@ -54,6 +56,7 @@ data Signal a = Alias String Int -- name, width
             | BinaryOp BOps (Signal a) (Signal a)
             | Undef
             | RegRef Int (Reg a) -- register, inserts 1 clock delay
+            | LutRef Int (Lut a)
             | WidthHint Int (Signal a)
 
 
@@ -74,6 +77,9 @@ getSignalWidth s = getSignalWidth' [] s where
     getSignalWidth' _ (WidthHint s _) = s
     getSignalWidth' _ (RegRef _ (Reg [] _ _)) = 0
     getSignalWidth' r (RegRef ref' (Reg s _ _)) = if elem ref' r then 0 else
+        maximum $ map ((getSignalWidth'  (ref':r)) . snd) s
+    getSignalWidth' _ (LutRef _ (Lut _ [] _ _)) = 0
+    getSignalWidth' r (LutRef ref' (Lut _ s _ _)) = if elem ref' r then 0 else
         maximum $ map ((getSignalWidth'  (ref':r)) . snd) s
     getSignalWidth' r Undef = 0
     getSignalWidth' r (ExtRef _ s) = getSignalWidth' r s
@@ -157,12 +163,15 @@ instance Num (Signal a) where
     fromInteger x = Lit (fromInteger x)
 
 data Comb a = Comb { ciid :: Int
-                                   , cisignal :: Signal a
-                                   , ciname :: HWName
-                                   , cideclare :: Bool } -- do we need to declare this signal
+                    , cisignal :: Signal a
+                    , ciname :: HWName
+                    , cideclare :: Bool } -- do we need to declare this signal
 
 -- condition/value pairs, initial(reset) value, optional name
 data Reg a = Reg [(Signal a, Signal a)] (Signal a) HWName
+
+-- input, lookup/value pairs, default value, optional name
+data Lut a = Lut (Signal a) [(Signal a, Signal a)] (Signal a) HWName
 
 -- add additional conditions to existing reg
 data RegC a = RegC Int [(Signal a, Signal a)]
@@ -170,11 +179,12 @@ data RegC a = RegC Int [(Signal a, Signal a)]
 -- HW accumulator type
 data SigMap a = SigMap { smSignals :: [Comb a]
                        , smRegs :: [(Int, Reg a)]
+                       , smLuts :: [(Int, Lut a)]
                        , smRegCs :: [RegC a] }
 
 instance Monoid (SigMap a) where
-    mempty = SigMap [] [] []
-    mappend (SigMap s1 s2 s3) (SigMap s1' s2' s3') = SigMap (s1 <> s1') (s2 <> s2') (s3 <> s3')
+    mempty = SigMap [] [] [] []
+    mappend (SigMap s1 s2 s3 s4) (SigMap s1' s2' s3' s4') = SigMap (s1 <> s1') (s2 <> s2') (s3 <> s3') (s4 <> s4')
 
 type HW a = RWS (SigMap a) (SigMap a) Int
 
@@ -225,6 +235,18 @@ mkReg' name reset_value reginput = do
 
     tell $ mempty {smRegs = [(n, r)]}
     return $ RegRef n r
+
+mkLut' :: HWName -> Signal a -> Signal a -> [(Signal a, Signal a)]  -> HW a (Signal a)
+mkLut' name input default_value lutpairs = do
+    n <- get
+    put $ n + 1
+    let 
+        r = Lut input lutpairs default_value name
+
+    tell $ mempty {smLuts = [(n, r)]}
+    return $ LutRef n r
+
+mkLut = mkLut' HWNNoName
 
 -- add additional condition/value pairs to existing reg
 -- used mostly in FSM logic
