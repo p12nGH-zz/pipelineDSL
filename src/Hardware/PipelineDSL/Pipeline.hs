@@ -90,9 +90,11 @@ downstreamDist stgid sig = r stgidPaths where
 
 data StgMap = StgMap { smStages :: [(Int, PStage)] }
 
+instance Semigroup StgMap where
+    (<>) (StgMap s) (StgMap s') = StgMap (s <> s')
+
 instance Monoid StgMap where
     mempty = StgMap []
-    mappend (StgMap s) (StgMap s') = StgMap (s <> s')
 
 type PipeM = RWST PipeCtrl StgMap Int (HW ASTHook)
 

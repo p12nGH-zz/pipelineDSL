@@ -51,9 +51,11 @@ data FSM a = FSM {
     transitions :: [(FSMContext, Signal a)]
 }
 
+instance Semigroup (FSM a) where
+    (<>) (FSM c1 t1) (FSM c2 t2) = FSM (c1 <> c2) (t1 <> t2)
+
 instance Monoid (FSM a) where
     mempty = FSM [] []
-    mappend (FSM c1 t1) (FSM c2 t2) = FSM (c1 <> c2) (t1 <> t2)
 
 or' = MultyOp Or
 and' = MultyOp And

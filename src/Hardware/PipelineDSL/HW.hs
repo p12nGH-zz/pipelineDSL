@@ -181,10 +181,11 @@ data SigMap a = SigMap { smSignals :: [Comb a]
                        , smRegs :: [(Int, Reg a)]
                        , smLuts :: [(Int, Lut a)]
                        , smRegCs :: [RegC a] }
+instance Semigroup (SigMap a) where
+    (<>) (SigMap s1 s2 s3 s4) (SigMap s1' s2' s3' s4') = SigMap (s1 <> s1') (s2 <> s2') (s3 <> s3') (s4 <> s4')
 
 instance Monoid (SigMap a) where
     mempty = SigMap [] [] [] []
-    mappend (SigMap s1 s2 s3 s4) (SigMap s1' s2' s3' s4') = SigMap (s1 <> s1') (s2 <> s2') (s3 <> s3') (s4 <> s4')
 
 type HW a = RWS (SigMap a) (SigMap a) Int
 
@@ -213,7 +214,8 @@ sig' inputSignal name decl = do
 
 mkRef :: Signal a -> HW a (Signal a, Int)
 mkRef s = do
-    r@(SigRef i _ _) <- sig s
+    r <- sig s
+    let (SigRef i _ _) = r
     return (r, i)
 
 mkReg :: [(Signal a, Signal a)] -> HW a (Signal a)
